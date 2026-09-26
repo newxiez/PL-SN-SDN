@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cek Stok Gudang</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#12161c; --panel:#1a2028; --line:#2a323d; --text:#e7ebf0; --muted:#8b95a3;
+  --amber:#e0a840; --amber-dim:#5c4a24; --ok:#4caf7d;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+  box-sizing:border-box;
+}
+*{box-sizing:border-box;}
+html{scroll-padding-top:env(safe-area-inset-top,0px);}
+body{margin:0;background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100%;}
+header{position:sticky;top:0;padding:16px 20px calc(16px + env(safe-area-inset-top,0px));background:var(--panel);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;z-index:5;}
+header h1{font-size:17px;margin:0;letter-spacing:.2px;}
+header .who{font-size:13px;color:var(--muted);}
+main{max-width:760px;margin:0 auto;padding:20px 16px 60px;}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px;margin-bottom:16px;}
+h2{font-size:15px;margin:0 0 12px;color:var(--amber);}
+input,button,select{font:inherit;}
+input[type=text],input[type=password],input[type=number]{width:100%;padding:10px 12px;background:#0f1319;border:1px solid var(--line);border-radius:7px;color:var(--text);margin-bottom:10px;}
+button{background:var(--amber);color:#1a1406;border:none;padding:10px 16px;border-radius:7px;font-weight:600;cursor:pointer;}
+button.ghost{background:transparent;border:1px solid var(--line);color:var(--text);font-weight:500;}
+button:disabled{opacity:.5;cursor:default;}
+.tabs{display:flex;gap:6px;overflow-x:auto;margin-bottom:16px;}
+.tab{padding:8px 14px;border-radius:20px;border:1px solid var(--line);color:var(--muted);white-space:nowrap;cursor:pointer;font-size:13px;}
+.tab.active{background:var(--amber-dim);color:var(--amber);border-color:var(--amber-dim);}
+table{width:100%;border-collapse:collapse;font-size:13px;}
+th,td{padding:8px 6px;text-align:left;border-bottom:1px solid var(--line);}
+th{color:var(--muted);font-weight:500;}
+.tablewrap{overflow-x:auto;}
+.progress{height:6px;background:#0f1319;border-radius:4px;overflow:hidden;margin:8px 0 14px;}
+.progress > div{height:100%;background:var(--ok);}
+.row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);}
+.row:last-child{border-bottom:none;}
+.row input[type=checkbox]{width:18px;height:18px;}
+.muted{color:var(--muted);font-size:13px;}
+.hint{font-size:12px;color:var(--muted);margin-top:-4px;margin-bottom:12px;}
+</style>
+</head>
+<body>
+<header>
+  <h1>📦 Cek Stok Gudang</h1>
+  <span class="who" id="whoLabel"></span>
+</header>
+<main id="app"></main>
+
+<script>
+const DB = {
+  get(k, d){ try{ return JSON.parse(localStorage.getItem(k)) ?? d; }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+};
+let state = {
+  staff: DB.get('staff', null),
+  items: DB.get('items', []),
+  tab: 'stok',
+  opname: DB.get('opname', {})
+};
+
+function save(){ DB.set('items', state.items); DB.set('opname', state.opname); }
+
+function render(){
+  document.getElementById('whoLabel').textContent = state.staff ? `Staff: ${state.staff}` : '';
+  const app = document.getElementById('app');
+  if(!state.staff){ app.innerHTML = loginView(); bindLogin(); return; }
+  app.innerHTML = `
+    <div class="tabs">
+      ${tabBtn('stok','Cek Stok')}
+      ${tabBtn('upload','Upload Excel')}
+      ${tabBtn('opname','Stock Opname')}
+    </div>
+    <div id="tabBody"></div>
+    <button class="ghost" id="logoutBtn" style="margin-top:8px;">Keluar</button>
+  `;
+  document.getElementById('tabBody').innerHTML =
+    state.tab === 'stok' ? stokView() :
+    state.tab === 'upload' ? uploadView() : opnameView();
+  document.querySelectorAll('.tab').forEach(el=>el.onclick=()=>{ state.tab = el.dataset.tab; render(); });
+  document.getElementById('logoutBtn').onclick = ()=>{ state.staff=null; DB.set('staff',null); render(); };
+  if(state.tab==='stok') bindStok();
+  if(state.tab==='upload') bindUpload();
+  if(state.tab==='opname') bindOpname();
+}
+
+function tabBtn(id,label){ return `<div class="tab ${state.tab===id?'active':''}" data-tab="${id}">${label}</div>`; }
+
+function loginView(){
+  return `<div class="card">
+    <h2>Masuk sebagai Staff Gudang</h2>
+    <input type="text" id="nameInput" placeholder="Nama staff">
+    <button id="loginBtn">Masuk</button>
+    <div class="hint">Demo ini menyimpan data di browser kamu sendiri (belum terhubung ke server bersama).</div>
+  </div>`;
+}
+function bindLogin(){
+  document.getElementById('loginBtn').onclick = ()=>{
+    const v = document.getElementById('nameInput').value.trim();
+    if(!v) return;
+    state.staff = v; DB.set('staff', v); render();
+  };
+}
+
+function stokView(){
+  const rows = state.items.map(it=>`<tr><td>${it.nama}</td><td>${it.kategori||'-'}</td><td>${it.stok}</td><td>Rp${Number(it.harga||0).toLocaleString('id-ID')}</td></tr>`).join('');
+  return `<div class="card">
+    <h2>Cek Harga & Stok</h2>
+    <input type="text" id="searchBox" placeholder="Cari nama barang...">
+    <div class="tablewrap"><table>
+      <thead><tr><th>Nama</th><th>Kategori</th><th>Stok</th><th>Harga</th></tr></thead>
+      <tbody id="stokBody">${rows || '<tr><td colspan="4" class="muted">Belum ada data. Upload dulu di tab Upload Excel.</td></tr>'}</tbody>
+    </table></div>
+  </div>`;
+}
+function bindStok(){
+  document.getElementById('searchBox').oninput = (e)=>{
+    const q = e.target.value.toLowerCase();
+    const filtered = state.items.filter(it=>it.nama.toLowerCase().includes(q));
+    document.getElementById('stokBody').innerHTML = filtered.map(it=>
+      `<tr><td>${it.nama}</td><td>${it.kategori||'-'}</td><td>${it.stok}</td><td>Rp${Number(it.harga||0).toLocaleString('id-ID')}</td></tr>`
+    ).join('') || '<tr><td colspan="4" class="muted">Tidak ditemukan.</td></tr>';
+  };
+}
+
+function uploadView(){
+  return `<div class="card">
+    <h2>Upload Stock / Price List</h2>
+    <div class="hint">Kolom Excel yang dibaca: <b>nama, kategori, stok, harga</b> (baris pertama = header).</div>
+    <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
+    <div id="uploadMsg" class="muted"></div>
+    <button class="ghost" id="clearBtn" style="margin-top:10px;">Hapus Semua Data</button>
+  </div>`;
+}
+function bindUpload(){
+  document.getElementById('fileInput').onchange = (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev)=>{
+      try{
+        const wb = XLSX.read(ev.target.result, {type:'binary'});
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet);
+        state.items = rows.map(r=>({
+          nama: r.nama || r.Nama || r.NAMA || '',
+          kategori: r.kategori || r.Kategori || '',
+          stok: r.stok || r.Stok || 0,
+          harga: r.harga || r.Harga || 0
+        })).filter(r=>r.nama);
+        save();
+        document.getElementById('uploadMsg').textContent = `${state.items.length} baris berhasil dimuat.`;
+      }catch(err){
+        document.getElementById('uploadMsg').textContent = 'Gagal membaca file. Pastikan format Excel benar.';
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+  document.getElementById('clearBtn').onclick = ()=>{
+    state.items = []; save(); render();
+  };
+}
+
+const KATEGORI = [
+  {id:'hp', label:'HP (Gadget)'},
+  {id:'acc', label:'Aksesoris (ACC)'},
+  {id:'itr', label:'ITR Gantung'}
+];
+function opnameView(){
+  return KATEGORI.map(k=>{
+    const list = state.opname[k.id] || [];
+    const done = list.filter(x=>x.done).length;
+    const pct = list.length ? Math.round(done/list.length*100) : 0;
+    const rows = list.map((x,i)=>`
+      <div class="row">
+        <input type="checkbox" data-cat="${k.id}" data-i="${i}" ${x.done?'checked':''}>
+        <span>${x.nama}</span>
+      </div>`).join('');
+    return `<div class="card">
+      <h2>${k.label}</h2>
+      <div class="progress"><div style="width:${pct}%"></div></div>
+      <div class="muted" style="margin-bottom:10px;">${done} / ${list.length} Selesai</div>
+      ${rows || '<div class="muted">Belum ada item. Tambahkan di bawah.</div>'}
+      <div style="display:flex;gap:8px;margin-top:12px;">
+        <input type="text" id="add-${k.id}" placeholder="Nama item...">
+        <button data-add="${k.id}">+</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+function bindOpname(){
+  document.querySelectorAll('input[type=checkbox][data-cat]').forEach(cb=>{
+    cb.onchange = ()=>{
+      const cat = cb.dataset.cat, i = +cb.dataset.i;
+      state.opname[cat][i].done = cb.checked;
+      save(); render();
+    };
+  });
+  document.querySelectorAll('button[data-add]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const cat = btn.dataset.add;
+      const input = document.getElementById(`add-${cat}`);
+      const v = input.value.trim();
+      if(!v) return;
+      if(!state.opname[cat]) state.opname[cat] = [];
+      state.opname[cat].push({nama:v, done:false});
+      save(); render();
+    };
+  });
+}
+
+render();
+</script>
+</body>
+</html>
