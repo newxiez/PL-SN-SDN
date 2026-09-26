@@ -8,207 +8,443 @@
 <style>
 :root{
   --bg:#12161c; --panel:#1a2028; --line:#2a323d; --text:#e7ebf0; --muted:#8b95a3;
-  --amber:#e0a840; --amber-dim:#5c4a24; --ok:#4caf7d;
-  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
-  box-sizing:border-box;
+  --amber:#e0a840; --amber-dim:#5c4a24; --ok:#4caf7d; --warn:#e0785a;
 }
 *{box-sizing:border-box;}
 html{scroll-padding-top:env(safe-area-inset-top,0px);}
-body{margin:0;background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100%;}
-header{position:sticky;top:0;padding:16px 20px calc(16px + env(safe-area-inset-top,0px));background:var(--panel);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;z-index:5;}
+body{margin:0;background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100%;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);}
+header{position:sticky;top:0;padding:16px 20px calc(16px + env(safe-area-inset-top,0px));background:var(--panel);
+  border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:10px;z-index:5;}
 header h1{font-size:17px;margin:0;letter-spacing:.2px;}
-header .who{font-size:13px;color:var(--muted);}
-main{max-width:760px;margin:0 auto;padding:20px 16px 60px;}
+main{max-width:820px;margin:0 auto;padding:20px 16px 60px;}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px;margin-bottom:16px;}
 h2{font-size:15px;margin:0 0 12px;color:var(--amber);}
-input,button,select{font:inherit;}
-input[type=text],input[type=password],input[type=number]{width:100%;padding:10px 12px;background:#0f1319;border:1px solid var(--line);border-radius:7px;color:var(--text);margin-bottom:10px;}
-button{background:var(--amber);color:#1a1406;border:none;padding:10px 16px;border-radius:7px;font-weight:600;cursor:pointer;}
+input,button{font:inherit;}
+input[type=text],input[type=password]{width:100%;padding:10px 12px;background:#0f1319;border:1px solid var(--line);
+  border-radius:7px;color:var(--text);margin-bottom:10px;}
+button{background:var(--amber);color:#1a1406;border:none;padding:9px 16px;border-radius:7px;font-weight:600;cursor:pointer;white-space:nowrap;}
 button.ghost{background:transparent;border:1px solid var(--line);color:var(--text);font-weight:500;}
-button:disabled{opacity:.5;cursor:default;}
+button.small{padding:7px 12px;font-size:13px;}
 .tabs{display:flex;gap:6px;overflow-x:auto;margin-bottom:16px;}
+.tabs.catRow{margin-bottom:14px;}
 .tab{padding:8px 14px;border-radius:20px;border:1px solid var(--line);color:var(--muted);white-space:nowrap;cursor:pointer;font-size:13px;}
 .tab.active{background:var(--amber-dim);color:var(--amber);border-color:var(--amber-dim);}
 table{width:100%;border-collapse:collapse;font-size:13px;}
-th,td{padding:8px 6px;text-align:left;border-bottom:1px solid var(--line);}
+th,td{padding:7px 6px;text-align:left;border-bottom:1px solid var(--line);}
 th{color:var(--muted);font-weight:500;}
 .tablewrap{overflow-x:auto;}
-.progress{height:6px;background:#0f1319;border-radius:4px;overflow:hidden;margin:8px 0 14px;}
-.progress > div{height:100%;background:var(--ok);}
-.row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);}
-.row:last-child{border-bottom:none;}
-.row input[type=checkbox]{width:18px;height:18px;}
 .muted{color:var(--muted);font-size:13px;}
 .hint{font-size:12px;color:var(--muted);margin-top:-4px;margin-bottom:12px;}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:20px;z-index:20;}
+.modal{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px;max-width:320px;width:100%;}
+.err{color:#e07a7a;font-size:13px;margin:-4px 0 10px;min-height:16px;}
+.uploadBlock{border-top:1px solid var(--line);padding-top:16px;margin-top:16px;}
+.uploadBlock:first-of-type{border-top:none;padding-top:0;margin-top:0;}
+.uploadBlock h3{font-size:14px;margin:0 0 8px;}
+.itemCard{border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin-bottom:12px;background:#161b22;}
+.itemCard h3{margin:0 0 8px;font-size:14px;color:var(--text);}
+.itemCard .itemNo{color:var(--muted);font-weight:400;font-size:12px;}
+.snGroupLabel{font-size:12px;color:var(--muted);margin:10px 0 4px;}
+.snList{display:flex;flex-wrap:wrap;gap:6px;}
+.snChip{font-size:12px;background:#0f1319;border:1px solid var(--line);border-radius:6px;padding:4px 8px;}
+.snChip.old{border-color:var(--warn);color:var(--warn);background:rgba(224,120,90,.1);font-weight:600;}
+.indentBox{margin-top:10px;font-size:13px;background:rgba(224,168,64,.08);border:1px solid var(--amber-dim);border-radius:6px;padding:8px 10px;color:var(--amber);}
 </style>
 </head>
 <body>
 <header>
   <h1>📦 Cek Stok Gudang</h1>
-  <span class="who" id="whoLabel"></span>
+  <button class="small" id="staffBtn"></button>
 </header>
 <main id="app"></main>
 
 <script>
+const STAFF_CODE = "GUDANG2026"; // ganti kode ini sesuai kebutuhan
+const OWN_WAREHOUSES = ["SDNC.UTM","SDNC.SHO","SDNC.DEM","SDNC.RUS"];
+
 const DB = {
   get(k, d){ try{ return JSON.parse(localStorage.getItem(k)) ?? d; }catch(e){ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
 };
 let state = {
-  staff: DB.get('staff', null),
-  items: DB.get('items', []),
-  tab: 'stok',
-  opname: DB.get('opname', {})
+  items: DB.get('items', []),          // price list: itemNo, deskripsi, gudang, available, allocated, harga
+  serialNumber: DB.get('serialNumber', []), // itemCode, deskripsi, serial, tanggal, gudang, status
+  stockCabang: DB.get('stockCabang', []),
+  itemsUpdated: DB.get('itemsUpdated', ''),
+  serialUpdated: DB.get('serialUpdated', ''),
+  cabangUpdated: DB.get('cabangUpdated', ''),
+  staffMode: false,
+  tab: 'upload',
+  showLogin: false,
+  loginErr: '',
+  itemsIndex: {},
+  serialIndex: {},
+  cabangIndex: {},
+  categoryFilter: null,
+  query: ''
 };
 
-function save(){ DB.set('items', state.items); DB.set('opname', state.opname); }
+// Precompute lowercase cache + group-by index so search doesn't rescan/relowercase on every keystroke
+function buildIndices(){
+  state.items.forEach(it=>{
+    it._noL = it.itemNo.toLowerCase();
+    it._dsL = it.deskripsi.toLowerCase();
+  });
+  state.serialNumber.forEach(sn=>{
+    sn._codeL = sn.itemCode.toLowerCase();
+    sn._dsL = sn.deskripsi.toLowerCase();
+  });
+  state.stockCabang.forEach(sc=>{
+    sc._noL = sc.itemNo.toLowerCase();
+    sc._dsL = sc.deskripsi.toLowerCase();
+  });
+  const idx1 = {}; state.items.forEach(it=>{ (idx1[it.itemNo] = idx1[it.itemNo] || []).push(it); });
+  const idx2 = {}; state.serialNumber.forEach(sn=>{ (idx2[sn.itemCode] = idx2[sn.itemCode] || []).push(sn); });
+  const idx3 = {}; state.stockCabang.forEach(sc=>{ (idx3[sc.itemNo] = idx3[sc.itemNo] || []).push(sc); });
+  state.itemsIndex = idx1;
+  state.serialIndex = idx2;
+  state.cabangIndex = idx3;
+}
+buildIndices();
+
+function save(){
+  DB.set('items', state.items);
+  DB.set('serialNumber', state.serialNumber);
+  DB.set('stockCabang', state.stockCabang);
+  DB.set('itemsUpdated', state.itemsUpdated);
+  DB.set('serialUpdated', state.serialUpdated);
+  DB.set('cabangUpdated', state.cabangUpdated);
+}
 
 function render(){
-  document.getElementById('whoLabel').textContent = state.staff ? `Staff: ${state.staff}` : '';
+  const staffBtn = document.getElementById('staffBtn');
+  staffBtn.textContent = state.staffMode ? 'Keluar Mode Staff' : 'Masuk Mode Staff';
+  staffBtn.className = state.staffMode ? 'small ghost' : 'small';
+  staffBtn.onclick = () => {
+    if(state.staffMode){ state.staffMode = false; render(); }
+    else { state.showLogin = true; state.loginErr=''; render(); }
+  };
+
   const app = document.getElementById('app');
-  if(!state.staff){ app.innerHTML = loginView(); bindLogin(); return; }
-  app.innerHTML = `
-    <div class="tabs">
-      ${tabBtn('stok','Cek Stok')}
-      ${tabBtn('upload','Upload Excel')}
-      ${tabBtn('opname','Stock Opname')}
-    </div>
-    <div id="tabBody"></div>
-    <button class="ghost" id="logoutBtn" style="margin-top:8px;">Keluar</button>
-  `;
-  document.getElementById('tabBody').innerHTML =
-    state.tab === 'stok' ? stokView() :
-    state.tab === 'upload' ? uploadView() : opnameView();
-  document.querySelectorAll('.tab').forEach(el=>el.onclick=()=>{ state.tab = el.dataset.tab; render(); });
-  document.getElementById('logoutBtn').onclick = ()=>{ state.staff=null; DB.set('staff',null); render(); };
-  if(state.tab==='stok') bindStok();
-  if(state.tab==='upload') bindUpload();
-  if(state.tab==='opname') bindOpname();
+
+  if(!state.staffMode){
+    app.innerHTML = stokView();
+    bindStok();
+  } else {
+    app.innerHTML = `
+      <div class="tabs">
+        ${tabBtn('stok','Cek Stok')}
+        ${tabBtn('upload','Upload Excel')}
+      </div>
+      <div id="tabBody"></div>
+    `;
+    document.getElementById('tabBody').innerHTML =
+      state.tab === 'stok' ? stokView() : uploadView();
+    document.querySelectorAll('.tab').forEach(el=>el.onclick=()=>{ state.tab = el.dataset.tab; render(); });
+    if(state.tab==='stok') bindStok();
+    if(state.tab==='upload') bindUpload();
+  }
+
+  renderLoginOverlay();
 }
 
 function tabBtn(id,label){ return `<div class="tab ${state.tab===id?'active':''}" data-tab="${id}">${label}</div>`; }
 
-function loginView(){
-  return `<div class="card">
-    <h2>Masuk sebagai Staff Gudang</h2>
-    <input type="text" id="nameInput" placeholder="Nama staff">
-    <button id="loginBtn">Masuk</button>
-    <div class="hint">Demo ini menyimpan data di browser kamu sendiri (belum terhubung ke server bersama).</div>
-  </div>`;
-}
-function bindLogin(){
-  document.getElementById('loginBtn').onclick = ()=>{
-    const v = document.getElementById('nameInput').value.trim();
-    if(!v) return;
-    state.staff = v; DB.set('staff', v); render();
+function renderLoginOverlay(){
+  let existing = document.getElementById('loginOverlay');
+  if(existing) existing.remove();
+  if(!state.showLogin) return;
+  const div = document.createElement('div');
+  div.className = 'overlay';
+  div.id = 'loginOverlay';
+  div.innerHTML = `
+    <div class="modal">
+      <h2>Masuk Mode Staff Gudang</h2>
+      <input type="password" id="codeInput" placeholder="Masukkan kode staff">
+      <div class="err">${state.loginErr}</div>
+      <div style="display:flex;gap:8px;">
+        <button id="codeSubmit">Masuk</button>
+        <button class="ghost" id="codeCancel">Batal</button>
+      </div>
+    </div>`;
+  document.body.appendChild(div);
+  const input = document.getElementById('codeInput');
+  input.focus();
+  const submit = ()=>{
+    if(input.value === STAFF_CODE){
+      state.staffMode = true; state.tab = 'upload'; state.showLogin = false; render();
+    } else {
+      state.loginErr = 'Kode salah, coba lagi.'; renderLoginOverlay();
+    }
   };
+  document.getElementById('codeSubmit').onclick = submit;
+  input.onkeydown = (e)=>{ if(e.key==='Enter') submit(); };
+  document.getElementById('codeCancel').onclick = ()=>{ state.showLogin=false; render(); };
+}
+
+// ---- date helpers (format dd/mm/yy) ----
+function parseTgl(str){
+  if(!str) return null;
+  const parts = String(str).split(/[\/\-]/);
+  if(parts.length !== 3) return null;
+  let [d,m,y] = parts.map(x=>parseInt(x,10));
+  if(y < 100) y += 2000;
+  const dt = new Date(y, m-1, d);
+  return isNaN(dt.getTime()) ? null : dt;
+}
+
+function getCategories(){
+  const set = new Set();
+  Object.keys(state.itemsIndex).forEach(k=>{ const p = k.split('.')[0]; if(p) set.add(p); });
+  Object.keys(state.serialIndex).forEach(k=>{ const p = k.split('.')[0]; if(p) set.add(p); });
+  Object.keys(state.cabangIndex).forEach(k=>{ const p = k.split('.')[0]; if(p) set.add(p); });
+  return Array.from(set).sort();
+}
+function catChipsHtml(){
+  const cats = getCategories();
+  if(!cats.length) return '';
+  const chip = (id,label) => `<div class="tab ${state.categoryFilter===id?'active':''}" data-cat="${id===null?'':id}">${label}</div>`;
+  return `<div class="tabs catRow">${chip(null,'Semua')}${cats.map(c=>chip(c,c)).join('')}</div>`;
 }
 
 function stokView(){
-  const rows = state.items.map(it=>`<tr><td>${it.nama}</td><td>${it.kategori||'-'}</td><td>${it.stok}</td><td>Rp${Number(it.harga||0).toLocaleString('id-ID')}</td></tr>`).join('');
   return `<div class="card">
     <h2>Cek Harga & Stok</h2>
-    <input type="text" id="searchBox" placeholder="Cari nama barang...">
-    <div class="tablewrap"><table>
-      <thead><tr><th>Nama</th><th>Kategori</th><th>Stok</th><th>Harga</th></tr></thead>
-      <tbody id="stokBody">${rows || '<tr><td colspan="4" class="muted">Belum ada data. Upload dulu di tab Upload Excel.</td></tr>'}</tbody>
-    </table></div>
+    <div class="hint">
+      ${state.itemsUpdated ? 'Price list diperbarui: ' + state.itemsUpdated : 'Price list belum diupload.'}
+      ${state.serialUpdated ? ' &middot; Serial number diperbarui: ' + state.serialUpdated : ''}
+      ${state.cabangUpdated ? ' &middot; Stock cabang lain diperbarui: ' + state.cabangUpdated : ''}
+    </div>
+    <input type="text" id="searchBox" value="${state.query.replace(/"/g,'&quot;')}" placeholder="Ketik Item No. atau Item Description...">
+    ${catChipsHtml()}
+    <div id="resultBody">${(state.items.length || state.serialNumber.length) ? '<div class="muted">Ketik untuk mulai mencari, atau pilih kategori.</div>' : '<div class="muted">Belum ada data.</div>'}</div>
   </div>`;
 }
+
+function buildResults(q, category){
+  q = q.toLowerCase();
+  let keySet;
+  if(q){
+    keySet = new Set();
+    state.items.forEach(it=>{
+      if(it._noL.includes(q) || it._dsL.includes(q)) keySet.add(it.itemNo);
+    });
+    state.serialNumber.forEach(sn=>{
+      if(sn._codeL.includes(q) || sn._dsL.includes(q)) keySet.add(sn.itemCode);
+    });
+    state.stockCabang.forEach(sc=>{
+      if(sc._noL.includes(q) || sc._dsL.includes(q)) keySet.add(sc.itemNo);
+    });
+  } else {
+    keySet = new Set([...Object.keys(state.itemsIndex), ...Object.keys(state.serialIndex), ...Object.keys(state.cabangIndex)]);
+  }
+  let keys = Array.from(keySet);
+  if(category){ keys = keys.filter(k => k.split('.')[0] === category); }
+  return keys.map(itemNo=>{
+    const plRows = state.itemsIndex[itemNo] || [];
+    const snRows = state.serialIndex[itemNo] || [];
+    const scRows = state.cabangIndex[itemNo] || []; // stockCabang rows here are already non-own-warehouse only
+    const deskripsi = (plRows[0] && plRows[0].deskripsi) || (snRows[0] && snRows[0].deskripsi) || (scRows[0] && scRows[0].deskripsi) || '';
+    const ownByGudang = {};
+    const otherGudang = new Set();
+    snRows.forEach(sn=>{
+      if(OWN_WAREHOUSES.includes(sn.gudang)){
+        (ownByGudang[sn.gudang] = ownByGudang[sn.gudang] || []).push(sn);
+      } else if(sn.gudang){
+        otherGudang.add(sn.gudang);
+      }
+    });
+    scRows.forEach(sc=>{ if(sc.gudang) otherGudang.add(sc.gudang); });
+    return {itemNo, deskripsi, plRows, ownByGudang, otherGudang};
+  });
+}
+
+function itemCardHtml(rec){
+  const plTable = rec.plRows.length ? `
+    <div class="tablewrap"><table>
+      <thead><tr><th>Warehouse Code</th><th>Available</th><th>Allocated</th><th>Harga</th></tr></thead>
+      <tbody>${rec.plRows.map(it=>`<tr>
+        <td>${it.gudang}</td><td>${it.available}</td><td>${it.allocated}</td>
+        <td>Rp${Number(it.harga||0).toLocaleString('id-ID')}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>` : '<div class="muted">Tidak ada di price list gudang sendiri.</div>';
+
+  const ownSerialBlocks = Object.keys(rec.ownByGudang).map(gudang=>{
+    const list = rec.ownByGudang[gudang].slice().sort((a,b)=>{
+      const da = parseTgl(a.tanggal), db = parseTgl(b.tanggal);
+      if(!da || !db) return 0;
+      return da - db;
+    });
+    const oldestTime = list.reduce((min,x)=>{
+      const d = parseTgl(x.tanggal);
+      return d && (!min || d < min) ? d : min;
+    }, null);
+    const chips = list.map(sn=>{
+      const d = parseTgl(sn.tanggal);
+      const isOld = oldestTime && d && d.getTime() === oldestTime.getTime();
+      return `<span class="snChip ${isOld?'old':''}">${sn.serial} &middot; ${sn.tanggal || '-'}${isOld?' (FIFO)':''}</span>`;
+    }).join('');
+    return `<div class="snGroupLabel">Serial Number &mdash; ${gudang}</div><div class="snList">${chips}</div>`;
+  }).join('');
+
+  const indent = rec.otherGudang.size ?
+    `<div class="indentBox">Status: Indent &mdash; tersedia di gudang: ${Array.from(rec.otherGudang).join(', ')}</div>` : '';
+
+  return `<div class="itemCard">
+    <h3>${rec.deskripsi} <span class="itemNo">(${rec.itemNo})</span></h3>
+    ${plTable}
+    ${ownSerialBlocks}
+    ${indent}
+  </div>`;
+}
+
+const RESULT_CAP = 40;
+let searchTimer = null;
+function runSearchAndRenderBody(){
+  const body = document.getElementById('resultBody');
+  if(!body) return;
+  const q = state.query.trim();
+  if(!q && !state.categoryFilter){
+    body.innerHTML = (state.items.length || state.serialNumber.length) ?
+      '<div class="muted">Ketik untuk mulai mencari, atau pilih kategori.</div>' : '<div class="muted">Belum ada data.</div>';
+    return;
+  }
+  const results = buildResults(q, state.categoryFilter);
+  if(!results.length){ body.innerHTML = '<div class="muted">Tidak ditemukan.</div>'; return; }
+  const shown = results.slice(0, RESULT_CAP);
+  let html = shown.map(itemCardHtml).join('');
+  if(results.length > RESULT_CAP){
+    html += `<div class="muted">Menampilkan ${RESULT_CAP} dari ${results.length} hasil — perkecil kata kunci untuk hasil lebih spesifik.</div>`;
+  }
+  body.innerHTML = html;
+}
 function bindStok(){
-  document.getElementById('searchBox').oninput = (e)=>{
-    const q = e.target.value.toLowerCase();
-    const filtered = state.items.filter(it=>it.nama.toLowerCase().includes(q));
-    document.getElementById('stokBody').innerHTML = filtered.map(it=>
-      `<tr><td>${it.nama}</td><td>${it.kategori||'-'}</td><td>${it.stok}</td><td>Rp${Number(it.harga||0).toLocaleString('id-ID')}</td></tr>`
-    ).join('') || '<tr><td colspan="4" class="muted">Tidak ditemukan.</td></tr>';
+  const box = document.getElementById('searchBox');
+  box.oninput = ()=>{
+    state.query = box.value;
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(runSearchAndRenderBody, 200); // debounce: tunggu jeda ketik singkat sebelum mencari
   };
+  document.querySelectorAll('.catRow .tab').forEach(chip=>{
+    chip.onclick = ()=>{
+      const cat = chip.dataset.cat || null; // "Semua" chip has empty dataset.cat -> null
+      state.categoryFilter = (cat === null) ? null : (state.categoryFilter === cat ? null : cat);
+      render();
+    };
+  });
+  runSearchAndRenderBody();
 }
 
 function uploadView(){
   return `<div class="card">
-    <h2>Upload Stock / Price List</h2>
-    <div class="hint">Kolom Excel yang dibaca: <b>nama, kategori, stok, harga</b> (baris pertama = header).</div>
-    <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
-    <div id="uploadMsg" class="muted"></div>
-    <button class="ghost" id="clearBtn" style="margin-top:10px;">Hapus Semua Data</button>
+    <div class="uploadBlock">
+      <h3>1. Price List</h3>
+      <div class="hint">Kolom yang dibaca: <b>Item No., Item Description, Warehouse Code, Available, Allocated, List Price</b>.</div>
+      <input type="file" id="fileInputPrice" accept=".xlsx,.xls,.csv">
+      <div id="msgPrice" class="muted">${state.itemsUpdated ? 'Terakhir upload: ' + state.itemsUpdated + ' (' + state.items.length + ' baris)' : ''}</div>
+    </div>
+    <div class="uploadBlock">
+      <h3>2. Serial Number</h3>
+      <div class="hint">Kolom yang dibaca: <b>Item Code, Item Description, Serial Number, Admission Date, Warehouse Code, Status</b>.</div>
+      <input type="file" id="fileInputSerial" accept=".xlsx,.xls,.csv">
+      <div id="msgSerial" class="muted">${state.serialUpdated ? 'Terakhir upload: ' + state.serialUpdated + ' (' + state.serialNumber.length + ' baris)' : ''}</div>
+    </div>
+    <div class="uploadBlock">
+      <h3>3. Stock Available (Cabang Lain)</h3>
+      <div class="hint">Kolom yang dibaca: <b>Warehouse Code, Item No., Item Description, Available</b>. Baris warehouse code milik sendiri (SDNC.*) otomatis diabaikan — file ini hanya dipakai untuk status Indent di gudang lain.</div>
+      <input type="file" id="fileInputCabang" accept=".xlsx,.xls,.csv">
+      <div id="msgCabang" class="muted">${state.cabangUpdated ? 'Terakhir upload: ' + state.cabangUpdated + ' (' + state.stockCabang.length + ' baris gudang lain)' : ''}</div>
+    </div>
+    <button class="ghost" id="clearBtn" style="margin-top:16px;">Hapus Semua Data</button>
   </div>`;
 }
+function readExcel(file, onRows){
+  const reader = new FileReader();
+  reader.onload = (ev)=>{
+    try{
+      const wb = XLSX.read(ev.target.result, {type:'binary'});
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      onRows(XLSX.utils.sheet_to_json(sheet));
+    }catch(err){ onRows(null); }
+  };
+  reader.readAsBinaryString(file);
+}
+function pick(r, ...keys){
+  const norm = s => String(s).trim().toLowerCase().replace(/\s+/g,' ');
+  const wanted = keys.map(norm);
+  for(const rawKey of Object.keys(r)){
+    if(wanted.includes(norm(rawKey))) return r[rawKey];
+  }
+  return '';
+}
+function toNumber(v){
+  if(typeof v === 'number') return v;
+  if(!v) return 0;
+  const n = parseFloat(String(v).replace(/[^0-9.-]/g,''));
+  return isNaN(n) ? 0 : n;
+}
 function bindUpload(){
-  document.getElementById('fileInput').onchange = (e)=>{
-    const file = e.target.files[0];
-    if(!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev)=>{
-      try{
-        const wb = XLSX.read(ev.target.result, {type:'binary'});
-        const sheet = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(sheet);
-        state.items = rows.map(r=>({
-          nama: r.nama || r.Nama || r.NAMA || '',
-          kategori: r.kategori || r.Kategori || '',
-          stok: r.stok || r.Stok || 0,
-          harga: r.harga || r.Harga || 0
-        })).filter(r=>r.nama);
-        save();
-        document.getElementById('uploadMsg').textContent = `${state.items.length} baris berhasil dimuat.`;
-      }catch(err){
-        document.getElementById('uploadMsg').textContent = 'Gagal membaca file. Pastikan format Excel benar.';
-      }
-    };
-    reader.readAsBinaryString(file);
+  document.getElementById('fileInputPrice').onchange = (e)=>{
+    const file = e.target.files[0]; if(!file) return;
+    readExcel(file, (rows)=>{
+      const msg = document.getElementById('msgPrice');
+      if(!rows){ msg.textContent = 'Gagal membaca file.'; return; }
+      state.items = rows.map(r=>({
+        itemNo: String(pick(r,'Item No.','Item No')||'').trim(),
+        deskripsi: String(pick(r,'Item Description')||'').trim(),
+        gudang: pick(r,'Warehouse Code') || '',
+        available: toNumber(pick(r,'Available')),
+        allocated: toNumber(pick(r,'Allocated')),
+        harga: toNumber(pick(r,'List Price'))
+      })).filter(r=>r.itemNo || r.deskripsi);
+      state.itemsUpdated = new Date().toLocaleString('id-ID');
+      buildIndices();
+      save();
+      msg.textContent = `Terakhir upload: ${state.itemsUpdated} (${state.items.length} baris)`;
+    });
+  };
+  document.getElementById('fileInputSerial').onchange = (e)=>{
+    const file = e.target.files[0]; if(!file) return;
+    readExcel(file, (rows)=>{
+      const msg = document.getElementById('msgSerial');
+      if(!rows){ msg.textContent = 'Gagal membaca file.'; return; }
+      state.serialNumber = rows.map(r=>({
+        itemCode: String(pick(r,'Item Code')||'').trim(),
+        deskripsi: String(pick(r,'Item Description')||'').trim(),
+        serial: String(pick(r,'Serial Number')||'').trim(),
+        tanggal: String(pick(r,'Admission Date')||'').trim(),
+        gudang: String(pick(r,'Warehouse Code')||'').trim(),
+        status: String(pick(r,'Status')||'').trim()
+      })).filter(r=>r.itemCode);
+      state.serialUpdated = new Date().toLocaleString('id-ID');
+      buildIndices();
+      save();
+      msg.textContent = `Terakhir upload: ${state.serialUpdated} (${state.serialNumber.length} baris)`;
+    });
+  };
+  document.getElementById('fileInputCabang').onchange = (e)=>{
+    const file = e.target.files[0]; if(!file) return;
+    readExcel(file, (rows)=>{
+      const msg = document.getElementById('msgCabang');
+      if(!rows){ msg.textContent = 'Gagal membaca file.'; return; }
+      state.stockCabang = rows.map(r=>({
+        itemNo: String(pick(r,'Item No.','Item No')||'').trim(),
+        deskripsi: String(pick(r,'Item Description')||'').trim(),
+        gudang: String(pick(r,'Warehouse Code')||'').trim()
+      })).filter(r=> r.itemNo && !OWN_WAREHOUSES.includes(r.gudang)); // hanya gudang lain, gudang sendiri diabaikan
+      state.cabangUpdated = new Date().toLocaleString('id-ID');
+      buildIndices();
+      save();
+      msg.textContent = `Terakhir upload: ${state.cabangUpdated} (${state.stockCabang.length} baris gudang lain)`;
+    });
   };
   document.getElementById('clearBtn').onclick = ()=>{
-    state.items = []; save(); render();
+    state.items = []; state.serialNumber = []; state.stockCabang = [];
+    state.itemsUpdated = ''; state.serialUpdated = ''; state.cabangUpdated = '';
+    buildIndices();
+    save(); render();
   };
-}
-
-const KATEGORI = [
-  {id:'hp', label:'HP (Gadget)'},
-  {id:'acc', label:'Aksesoris (ACC)'},
-  {id:'itr', label:'ITR Gantung'}
-];
-function opnameView(){
-  return KATEGORI.map(k=>{
-    const list = state.opname[k.id] || [];
-    const done = list.filter(x=>x.done).length;
-    const pct = list.length ? Math.round(done/list.length*100) : 0;
-    const rows = list.map((x,i)=>`
-      <div class="row">
-        <input type="checkbox" data-cat="${k.id}" data-i="${i}" ${x.done?'checked':''}>
-        <span>${x.nama}</span>
-      </div>`).join('');
-    return `<div class="card">
-      <h2>${k.label}</h2>
-      <div class="progress"><div style="width:${pct}%"></div></div>
-      <div class="muted" style="margin-bottom:10px;">${done} / ${list.length} Selesai</div>
-      ${rows || '<div class="muted">Belum ada item. Tambahkan di bawah.</div>'}
-      <div style="display:flex;gap:8px;margin-top:12px;">
-        <input type="text" id="add-${k.id}" placeholder="Nama item...">
-        <button data-add="${k.id}">+</button>
-      </div>
-    </div>`;
-  }).join('');
-}
-function bindOpname(){
-  document.querySelectorAll('input[type=checkbox][data-cat]').forEach(cb=>{
-    cb.onchange = ()=>{
-      const cat = cb.dataset.cat, i = +cb.dataset.i;
-      state.opname[cat][i].done = cb.checked;
-      save(); render();
-    };
-  });
-  document.querySelectorAll('button[data-add]').forEach(btn=>{
-    btn.onclick = ()=>{
-      const cat = btn.dataset.add;
-      const input = document.getElementById(`add-${cat}`);
-      const v = input.value.trim();
-      if(!v) return;
-      if(!state.opname[cat]) state.opname[cat] = [];
-      state.opname[cat].push({nama:v, done:false});
-      save(); render();
-    };
-  });
 }
 
 render();
