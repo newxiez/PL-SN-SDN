@@ -371,20 +371,65 @@ function uploadView(){
 // saat memproses file besar (puluhan ribu baris). Interface readExcel() tetap sama persis.
 const _xlsxWorkerCode = `
   importScripts('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+  const OWN_WAREHOUSES = ["SDNC.UTM","SDNC.SHO","SDNC.DEM","SDNC.RUS"];
+  function pick(r, keys){
+    const norm = s => String(s).trim().toLowerCase().replace(/\\s+/g,' ');
+    const wanted = keys.map(norm);
+    for(const rawKey of Object.keys(r)){ if(wanted.includes(norm(rawKey))) return r[rawKey]; }
+    return '';
+  }
+  function toNumber(v){
+    if(typeof v === 'number') return v;
+    if(!v) return 0;
+    const n = parseFloat(String(v).replace(/[^0-9.-]/g,''));
+    return isNaN(n) ? 0 : n;
+  }
+  function transform(kind, rows){
+    if(kind === 'priceList') return rows.map(r=>({
+      itemNo: String(pick(r,['Item No.','Item No'])||'').trim(),
+      deskripsi: String(pick(r,['Item Description'])||'').trim(),
+      gudang: pick(r,['Warehouse Code']) || '',
+      available: toNumber(pick(r,['Available'])),
+      allocated: toNumber(pick(r,['Allocated'])),
+      harga: toNumber(pick(r,['List Price']))
+    })).filter(r=>r.itemNo || r.deskripsi);
+    if(kind === 'serialNumber') return rows.map(r=>({
+      itemCode: String(pick(r,['Item Code'])||'').trim(),
+      deskripsi: String(pick(r,['Item Description'])||'').trim(),
+      serial: String(pick(r,['Serial Number'])||'').trim(),
+      tanggal: String(pick(r,['Admission Date'])||'').trim(),
+      gudang: String(pick(r,['Warehouse Code'])||'').trim(),
+      status: String(pick(r,['Status'])||'').trim()
+    })).filter(r=>r.itemCode);
+    if(kind === 'stockCabang') return rows.map(r=>({
+      itemNo: String(pick(r,['Item No.','Item No'])||'').trim(),
+      deskripsi: String(pick(r,['Item Description'])||'').trim(),
+      gudang: String(pick(r,['Warehouse Code'])||'').trim()
+    })).filter(r=>r.itemNo && !OWN_WAREHOUSES.includes(r.gudang));
+    if(kind === 'barcode') return rows.map(r=>({
+      itemNo: String(pick(r,['Item No.','Item No'])||'').trim(),
+      deskripsi: String(pick(r,['Item Description'])||'').trim(),
+      barcode: String(pick(r,['Bar Code','Barcode'])||'').trim()
+    })).filter(r=>r.itemNo && r.barcode);
+    return rows;
+  }
   onmessage = function(e){
     try{
-      const wb = XLSX.read(e.data, {type:'array'});
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {raw:true, defval:''});
-      postMessage({ok:true, rows});
+      const {kind, buffer} = e.data;
+      const wb = XLSX.read(buffer, {type:'array'});
+      const rawRows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {raw:true, defval:''});
+      postMessage({ok:true, rows: transform(kind, rawRows)});
     }catch(err){ postMessage({ok:false}); }
   };
 `;
 const _xlsxWorkerUrl = URL.createObjectURL(new Blob([_xlsxWorkerCode], {type:'application/javascript'}));
 
-function readExcel(file, onRows){
+// readExcel sekarang mengembalikan data yang SUDAH dalam bentuk final (siap dipakai state.items dst),
+// karena pick/toNumber/filter gudang sendiri juga dikerjakan di dalam worker.
+function readExcel(file, kind, onRows){
   const worker = new Worker(_xlsxWorkerUrl);
   const reader = new FileReader();
-  reader.onload = (ev)=>{ worker.postMessage(ev.target.result, [ev.target.result]); };
+  reader.onload = (ev)=>{ worker.postMessage({kind, buffer: ev.target.result}, [ev.target.result]); };
   reader.onerror = ()=>{ onRows(null); worker.terminate(); };
   worker.onmessage = (e)=>{ onRows(e.data.ok ? e.data.rows : null); worker.terminate(); };
   worker.onerror = ()=>{ onRows(null); worker.terminate(); };
@@ -405,17 +450,9 @@ function toNumber(v){
 function bindUpload(){
   document.getElementById('fileInputPrice').onchange = (e)=>{
     const file = e.target.files[0]; if(!file) return;
-    const msg = document.getElementById('msgPrice'); msg.textContent = 'Membaca file...';
-    readExcel(file, async (rows)=>{
-      if(!rows){ msg.textContent = 'Gagal membaca file.'; return; }
-      const parsed = rows.map(r=>({
-        itemNo: String(pick(r,'Item No.','Item No')||'').trim(),
-        deskripsi: String(pick(r,'Item Description')||'').trim(),
-        gudang: pick(r,'Warehouse Code') || '',
-        available: toNumber(pick(r,'Available')),
-        allocated: toNumber(pick(r,'Allocated')),
-        harga: toNumber(pick(r,'List Price'))
-      })).filter(r=>r.itemNo || r.deskripsi);
+    const msg = document.getElementById('msgPrice'); msg.textContent = 'Memproses file...';
+    readExcel(file, 'priceList', async (parsed)=>{
+      if(!parsed){ msg.textContent = 'Gagal membaca file.'; return; }
       msg.textContent = `Mengunggah ${parsed.length} baris ke database bersama...`;
       const updatedAt = await pushToFirestore('priceList', parsed, 'priceList');
       state.items = parsed; state.itemsUpdated = fmtDate(updatedAt);
@@ -425,17 +462,9 @@ function bindUpload(){
   };
   document.getElementById('fileInputSerial').onchange = (e)=>{
     const file = e.target.files[0]; if(!file) return;
-    const msg = document.getElementById('msgSerial'); msg.textContent = 'Membaca file...';
-    readExcel(file, async (rows)=>{
-      if(!rows){ msg.textContent = 'Gagal membaca file.'; return; }
-      const parsed = rows.map(r=>({
-        itemCode: String(pick(r,'Item Code')||'').trim(),
-        deskripsi: String(pick(r,'Item Description')||'').trim(),
-        serial: String(pick(r,'Serial Number')||'').trim(),
-        tanggal: String(pick(r,'Admission Date')||'').trim(),
-        gudang: String(pick(r,'Warehouse Code')||'').trim(),
-        status: String(pick(r,'Status')||'').trim()
-      })).filter(r=>r.itemCode);
+    const msg = document.getElementById('msgSerial'); msg.textContent = 'Memproses file...';
+    readExcel(file, 'serialNumber', async (parsed)=>{
+      if(!parsed){ msg.textContent = 'Gagal membaca file.'; return; }
       msg.textContent = `Mengunggah ${parsed.length} baris ke database bersama... (bisa beberapa puluh detik)`;
       const updatedAt = await pushToFirestore('serialNumber', parsed, 'serialNumber');
       state.serialNumber = parsed; state.serialUpdated = fmtDate(updatedAt);
@@ -445,14 +474,9 @@ function bindUpload(){
   };
   document.getElementById('fileInputCabang').onchange = (e)=>{
     const file = e.target.files[0]; if(!file) return;
-    const msg = document.getElementById('msgCabang'); msg.textContent = 'Membaca file...';
-    readExcel(file, async (rows)=>{
-      if(!rows){ msg.textContent = 'Gagal membaca file.'; return; }
-      const parsed = rows.map(r=>({
-        itemNo: String(pick(r,'Item No.','Item No')||'').trim(),
-        deskripsi: String(pick(r,'Item Description')||'').trim(),
-        gudang: String(pick(r,'Warehouse Code')||'').trim()
-      })).filter(r=>r.itemNo && !OWN_WAREHOUSES.includes(r.gudang));
+    const msg = document.getElementById('msgCabang'); msg.textContent = 'Memproses file... (file besar, mohon tunggu)';
+    readExcel(file, 'stockCabang', async (parsed)=>{
+      if(!parsed){ msg.textContent = 'Gagal membaca file.'; return; }
       msg.textContent = `Mengunggah ${parsed.length} baris ke database bersama... (bisa beberapa puluh detik)`;
       const updatedAt = await pushToFirestore('stockCabang', parsed, 'stockCabang');
       state.stockCabang = parsed; state.cabangUpdated = fmtDate(updatedAt);
@@ -462,14 +486,9 @@ function bindUpload(){
   };
   document.getElementById('fileInputBarcode').onchange = (e)=>{
     const file = e.target.files[0]; if(!file) return;
-    const msg = document.getElementById('msgBarcode'); msg.textContent = 'Membaca file...';
-    readExcel(file, async (rows)=>{
-      if(!rows){ msg.textContent = 'Gagal membaca file.'; return; }
-      const parsed = rows.map(r=>({
-        itemNo: String(pick(r,'Item No.','Item No')||'').trim(),
-        deskripsi: String(pick(r,'Item Description')||'').trim(),
-        barcode: String(pick(r,'Bar Code','Barcode')||'').trim()
-      })).filter(r=>r.itemNo && r.barcode);
+    const msg = document.getElementById('msgBarcode'); msg.textContent = 'Memproses file...';
+    readExcel(file, 'barcode', async (parsed)=>{
+      if(!parsed){ msg.textContent = 'Gagal membaca file.'; return; }
       msg.textContent = `Mengunggah ${parsed.length} baris ke database bersama...`;
       const updatedAt = await pushToFirestore('barcode', parsed, 'barcode');
       state.barcode = parsed; state.barcodeUpdated = fmtDate(updatedAt);
