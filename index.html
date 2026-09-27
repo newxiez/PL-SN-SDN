@@ -367,15 +367,28 @@ function uploadView(){
     </div>
   </div>`;
 }
-function readExcel(file, onRows){
-  const reader = new FileReader();
-  reader.onload = (ev)=>{
+// Baca & parsing Excel dilakukan di Web Worker terpisah supaya halaman tidak "macet"
+// saat memproses file besar (puluhan ribu baris). Interface readExcel() tetap sama persis.
+const _xlsxWorkerCode = `
+  importScripts('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+  onmessage = function(e){
     try{
-      const wb = XLSX.read(ev.target.result, {type:'binary'});
-      onRows(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]));
-    }catch(err){ onRows(null); }
+      const wb = XLSX.read(e.data, {type:'array'});
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {raw:true, defval:''});
+      postMessage({ok:true, rows});
+    }catch(err){ postMessage({ok:false}); }
   };
-  reader.readAsBinaryString(file);
+`;
+const _xlsxWorkerUrl = URL.createObjectURL(new Blob([_xlsxWorkerCode], {type:'application/javascript'}));
+
+function readExcel(file, onRows){
+  const worker = new Worker(_xlsxWorkerUrl);
+  const reader = new FileReader();
+  reader.onload = (ev)=>{ worker.postMessage(ev.target.result, [ev.target.result]); };
+  reader.onerror = ()=>{ onRows(null); worker.terminate(); };
+  worker.onmessage = (e)=>{ onRows(e.data.ok ? e.data.rows : null); worker.terminate(); };
+  worker.onerror = ()=>{ onRows(null); worker.terminate(); };
+  reader.readAsArrayBuffer(file);
 }
 function pick(r, ...keys){
   const norm = s => String(s).trim().toLowerCase().replace(/\s+/g,' ');
