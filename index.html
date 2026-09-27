@@ -96,33 +96,84 @@ let state = {
 };
 
 // ---------------- Firestore helpers ----------------
-async function pushToFirestore(collectionName, rows, metaKey){
+// ---- Cache lokal (IndexedDB) supaya pengakses link tidak perlu download ulang
+// data yang belum berubah setiap kali buka halaman. ----
+const IDB_NAME = 'stokGudangCache', IDB_STORE = 'cache';
+function idbOpen(){
+  return new Promise((resolve,reject)=>{
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = ()=> req.result.createObjectStore(IDB_STORE);
+    req.onsuccess = ()=> resolve(req.result);
+    req.onerror = ()=> reject(req.error);
+  });
+}
+async function idbGet(key){
+  try{
+    const idb = await idbOpen();
+    return await new Promise((resolve)=>{
+      const req = idb.transaction(IDB_STORE,'readonly').objectStore(IDB_STORE).get(key);
+      req.onsuccess = ()=> resolve(req.result || null);
+      req.onerror = ()=> resolve(null);
+    });
+  }catch(e){ return null; }
+}
+async function idbSet(key, value){
+  try{
+    const idb = await idbOpen();
+    const tx = idb.transaction(IDB_STORE,'readwrite');
+    tx.objectStore(IDB_STORE).put(value, key);
+  }catch(e){ /* cache gagal, tidak masalah, tetap jalan tanpa cache */ }
+}
+
+// Upload per-chunk dengan concurrency terbatas (bukan satu batch raksasa) +
+// progress callback, supaya file besar (Stock Cabang Lain) lebih cepat & terlihat progresnya.
+async function pushToFirestore(collectionName, rows, metaKey, onProgress){
   const chunks = [];
   for(let i=0;i<rows.length;i+=CHUNK_SIZE) chunks.push(rows.slice(i,i+CHUNK_SIZE));
   const metaRef = db.collection('meta').doc(metaKey);
   const metaSnap = await metaRef.get();
   const oldCount = metaSnap.exists ? (metaSnap.data().chunkCount || 0) : 0;
-  const batch = db.batch();
-  chunks.forEach((chunk, idx)=>{
-    batch.set(db.collection(collectionName).doc('chunk_'+idx), { rows: chunk });
-  });
-  for(let i=chunks.length; i<oldCount; i++){
-    batch.delete(db.collection(collectionName).doc('chunk_'+i));
+
+  let done = 0;
+  const CONCURRENCY = 6;
+  let nextIdx = 0;
+  async function worker(){
+    while(nextIdx < chunks.length){
+      const my = nextIdx++;
+      await db.collection(collectionName).doc('chunk_'+my).set({ rows: chunks[my] });
+      done++;
+      if(onProgress) onProgress(done, chunks.length);
+    }
   }
+  await Promise.all(Array.from({length: Math.min(CONCURRENCY, chunks.length)||1}, worker));
+
+  const deletes = [];
+  for(let i=chunks.length; i<oldCount; i++){
+    deletes.push(db.collection(collectionName).doc('chunk_'+i).delete());
+  }
+  await Promise.all(deletes);
+
   const updatedAt = new Date().toISOString();
-  batch.set(metaRef, { chunkCount: chunks.length, updatedAt });
-  await batch.commit();
+  await metaRef.set({ chunkCount: chunks.length, updatedAt });
+  idbSet(metaKey, { updatedAt, rows }); // simpan ke cache lokal juga supaya viewer lain yg reload cepat
   return updatedAt;
 }
 async function loadFromFirestore(collectionName, metaKey){
   const metaSnap = await db.collection('meta').doc(metaKey).get();
   if(!metaSnap.exists) return { rows: [], updatedAt: '' };
   const { chunkCount, updatedAt } = metaSnap.data();
+
+  const cached = await idbGet(metaKey);
+  if(cached && cached.updatedAt === updatedAt){
+    return { rows: cached.rows, updatedAt }; // data belum berubah, tidak perlu download ulang
+  }
+
   const snaps = await Promise.all(
     Array.from({length: chunkCount}, (_,i)=> db.collection(collectionName).doc('chunk_'+i).get())
   );
   const rows = [];
   snaps.forEach(s=>{ if(s.exists) rows.push(...s.data().rows); });
+  idbSet(metaKey, { updatedAt, rows }); // simpan ke cache lokal untuk kunjungan berikutnya
   return { rows, updatedAt };
 }
 function fmtDate(iso){ return iso ? new Date(iso).toLocaleString('id-ID') : ''; }
@@ -465,8 +516,10 @@ function bindUpload(){
     const msg = document.getElementById('msgSerial'); msg.textContent = 'Memproses file...';
     readExcel(file, 'serialNumber', async (parsed)=>{
       if(!parsed){ msg.textContent = 'Gagal membaca file.'; return; }
-      msg.textContent = `Mengunggah ${parsed.length} baris ke database bersama... (bisa beberapa puluh detik)`;
-      const updatedAt = await pushToFirestore('serialNumber', parsed, 'serialNumber');
+      msg.textContent = `Mengunggah ${parsed.length} baris ke database bersama...`;
+      const updatedAt = await pushToFirestore('serialNumber', parsed, 'serialNumber', (done,total)=>{
+        msg.textContent = `Mengunggah... bagian ${done}/${total}`;
+      });
       state.serialNumber = parsed; state.serialUpdated = fmtDate(updatedAt);
       buildIndices();
       msg.textContent = `Terakhir: ${state.serialUpdated} (${state.serialNumber.length} baris)`;
@@ -477,8 +530,10 @@ function bindUpload(){
     const msg = document.getElementById('msgCabang'); msg.textContent = 'Memproses file... (file besar, mohon tunggu)';
     readExcel(file, 'stockCabang', async (parsed)=>{
       if(!parsed){ msg.textContent = 'Gagal membaca file.'; return; }
-      msg.textContent = `Mengunggah ${parsed.length} baris ke database bersama... (bisa beberapa puluh detik)`;
-      const updatedAt = await pushToFirestore('stockCabang', parsed, 'stockCabang');
+      msg.textContent = `Mengunggah ${parsed.length} baris ke database bersama...`;
+      const updatedAt = await pushToFirestore('stockCabang', parsed, 'stockCabang', (done,total)=>{
+        msg.textContent = `Mengunggah... bagian ${done}/${total}`;
+      });
       state.stockCabang = parsed; state.cabangUpdated = fmtDate(updatedAt);
       buildIndices();
       msg.textContent = `Terakhir: ${state.cabangUpdated} (${state.stockCabang.length} baris gudang lain)`;
