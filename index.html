@@ -196,7 +196,7 @@ async function loadAll(){
 
 function buildIndices(){
   state.items.forEach(it=>{ it._noL = it.itemNo.toLowerCase(); it._dsL = it.deskripsi.toLowerCase(); });
-  state.serialNumber.forEach(sn=>{ sn._codeL = sn.itemCode.toLowerCase(); sn._dsL = sn.deskripsi.toLowerCase(); });
+  state.serialNumber.forEach(sn=>{ sn._codeL = sn.itemCode.toLowerCase(); sn._dsL = sn.deskripsi.toLowerCase(); sn._snL = sn.serial.toLowerCase(); });
   state.stockCabang.forEach(sc=>{ sc._noL = sc.itemNo.toLowerCase(); sc._dsL = sc.deskripsi.toLowerCase(); });
   state.barcode.forEach(bc=>{ bc._noL = bc.itemNo.toLowerCase(); bc._dsL = bc.deskripsi.toLowerCase(); bc._bcL = bc.barcode.toLowerCase(); });
   const idx1 = {}; state.items.forEach(it=>{ (idx1[it.itemNo] = idx1[it.itemNo] || []).push(it); });
@@ -291,7 +291,7 @@ function stokView(){
       ${state.cabangUpdated ? ' &middot; Cabang lain: '+state.cabangUpdated : ''}
       ${state.barcodeUpdated ? ' &middot; Barcode: '+state.barcodeUpdated : ''}
     </div>
-    <input type="text" id="searchBox" value="${state.query.replace(/"/g,'&quot;')}" placeholder="Ketik Item No. atau Item Description...">
+    <input type="text" id="searchBox" value="${state.query.replace(/"/g,'&quot;')}" placeholder="Ketik Item No., Item Description, Barcode, atau Serial Number...">
     ${catChipsHtml()}
     <div id="resultBody">${(state.items.length||state.serialNumber.length||state.stockCabang.length) ? '<div class="muted">Ketik untuk mulai mencari, atau pilih kategori.</div>' : '<div class="muted">Belum ada data.</div>'}</div>
   </div>`;
@@ -312,7 +312,7 @@ function buildResults(q, category){
   if(q){
     keySet = new Set();
     state.items.forEach(it=>{ if(it._noL.includes(q)||it._dsL.includes(q)) keySet.add(it.itemNo); });
-    state.serialNumber.forEach(sn=>{ if(sn._codeL.includes(q)||sn._dsL.includes(q)) keySet.add(sn.itemCode); });
+    state.serialNumber.forEach(sn=>{ if(sn._codeL.includes(q)||sn._dsL.includes(q)||sn._snL.includes(q)) keySet.add(sn.itemCode); });
     state.stockCabang.forEach(sc=>{ if(sc._noL.includes(q)||sc._dsL.includes(q)) keySet.add(sc.itemNo); });
     state.barcode.forEach(bc=>{ if(bc._noL.includes(q)||bc._dsL.includes(q)||bc._bcL.includes(q)) keySet.add(bc.itemNo); });
   } else {
