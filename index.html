@@ -51,6 +51,7 @@ th{color:var(--muted);font-weight:500;}
 .snList{display:flex;flex-wrap:wrap;gap:6px;}
 .snChip{font-size:12px;background:#0f1319;border:1px solid var(--line);border-radius:6px;padding:4px 8px;}
 .snChip.old{border-color:var(--warn);color:var(--warn);background:rgba(224,120,90,.1);font-weight:600;}
+.snChip.allocated{opacity:.6;text-decoration:line-through;}
 .indentBox{margin-top:10px;font-size:13px;background:rgba(224,168,64,.08);border:1px solid var(--amber-dim);border-radius:6px;padding:8px 10px;color:var(--amber);}
 </style>
 </head>
@@ -351,7 +352,9 @@ function itemCardHtml(rec){
     const chips = list.map(sn=>{
       const d = parseTgl(sn.tanggal);
       const isOld = oldest && d && d.getTime()===oldest.getTime();
-      return `<span class="snChip ${isOld?'old':''}">${sn.serial} &middot; ${sn.tanggal||'-'}${isOld?' (FIFO)':''}</span>`;
+      const statusLabel = sn.status ? ` &middot; ${sn.status}` : '';
+      const allocClass = /allocated/i.test(sn.status||'') ? ' allocated' : '';
+      return `<span class="snChip ${isOld?'old':''}${allocClass}">${sn.serial} &middot; ${sn.tanggal||'-'}${statusLabel}${isOld?' (FIFO)':''}</span>`;
     }).join('');
     return `<div class="snGroupLabel">Serial Number &mdash; ${gudang}</div><div class="snList">${chips}</div>`;
   }).join('');
