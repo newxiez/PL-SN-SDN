@@ -52,6 +52,7 @@ th{color:var(--muted);font-weight:500;}
 .snChip{font-size:12px;background:#0f1319;border:1px solid var(--line);border-radius:6px;padding:4px 8px;}
 .snChip.old{border-color:var(--warn);color:var(--warn);background:rgba(224,120,90,.1);font-weight:600;}
 .snChip.allocated{opacity:.6;text-decoration:line-through;}
+.snChip button{margin-left:6px;padding:3px 8px;font-size:11px;vertical-align:middle;text-decoration:none;}
 .indentBox{margin-top:10px;font-size:13px;background:rgba(224,168,64,.08);border:1px solid var(--amber-dim);border-radius:6px;padding:8px 10px;color:var(--amber);}
 </style>
 </head>
@@ -89,9 +90,10 @@ const OWN_WAREHOUSES = ["SDNC.UTM","SDNC.SHO","SDNC.DEM","SDNC.RUS"];
 const CHUNK_SIZE = 4000; // baris per dokumen Firestore (aman di bawah batas 1MB/dokumen)
 
 let state = {
-  items: [], serialNumber: [], stockCabang: [], barcode: [],
-  itemsUpdated: '', serialUpdated: '', cabangUpdated: '', barcodeUpdated: '',
+  items: [], serialNumber: [], stockCabang: [], barcode: [], manualSupport: [],
+  itemsUpdated: '', serialUpdated: '', cabangUpdated: '', barcodeUpdated: '', manualSupportUpdated: '',
   itemsIndex: {}, serialIndex: {}, cabangIndex: {}, barcodeIndex: {},
+  manualIndex: {}, knownDescSet: new Set(),
   staffMode: false, tab: 'upload', showLogin: false, loginErr: '',
   categoryFilter: null, query: '', loaded: false
 };
@@ -159,7 +161,7 @@ async function pushToFirestore(collectionName, rows, metaKey, onProgress){
   idbSet(metaKey, { updatedAt, rows }); // simpan ke cache lokal juga supaya viewer lain yg reload cepat
   return updatedAt;
 }
-async function loadFromFirestore(collectionName, metaKey){
+async function loadFromFirestore(collectionName, metaKey, tagChunk){
   const metaSnap = await db.collection('meta').doc(metaKey).get();
   if(!metaSnap.exists) return { rows: [], updatedAt: '' };
   const { chunkCount, updatedAt } = metaSnap.data();
@@ -173,7 +175,12 @@ async function loadFromFirestore(collectionName, metaKey){
     Array.from({length: chunkCount}, (_,i)=> db.collection(collectionName).doc('chunk_'+i).get())
   );
   const rows = [];
-  snaps.forEach(s=>{ if(s.exists) rows.push(...s.data().rows); });
+  snaps.forEach((s,i)=>{
+    if(!s.exists) return;
+    const chunkRows = s.data().rows;
+    if(tagChunk) chunkRows.forEach(r=>{ r._chunkIdx = i; }); // dipakai saat checkout untuk tahu dokumen mana yang perlu diubah
+    rows.push(...chunkRows);
+  });
   idbSet(metaKey, { updatedAt, rows }); // simpan ke cache lokal untuk kunjungan berikutnya
   return { rows, updatedAt };
 }
@@ -393,28 +400,22 @@ function bindStok(){
   runSearchAndRenderBody();
 }
 
+function comboSummaryHtml(){
+  return `Price List: ${state.itemsUpdated ? state.itemsUpdated+' ('+state.items.length+' baris)' : '-'}<br>
+    Serial Number: ${state.serialUpdated ? state.serialUpdated+' ('+state.serialNumber.length+' baris)' : '-'}<br>
+    Stock Cabang Lain: ${state.cabangUpdated ? state.cabangUpdated+' ('+state.stockCabang.length+' baris gudang lain)' : '-'}`;
+}
 function uploadView(){
   return `<div class="card">
     <div class="uploadBlock">
-      <h3>1. Price List</h3>
-      <div class="hint">Kolom: <b>Item No., Item Description, Warehouse Code, Available, Allocated, List Price</b>.</div>
-      <input type="file" id="fileInputPrice" accept=".xlsx,.xls,.csv">
-      <div id="msgPrice" class="muted">${state.itemsUpdated ? 'Terakhir: '+state.itemsUpdated+' ('+state.items.length+' baris)' : ''}</div>
+      <h3>1. Price List, Serial Number & Stock Cabang Lain</h3>
+      <div class="hint">Pilih langsung 1-3 file sekaligus (boleh sebagian) \u2014 jenisnya dikenali otomatis dari nama kolom di tiap file. Kalau ada file yang tidak dikenali jenisnya, semua upload pada batch ini dibatalkan.</div>
+      <input type="file" id="fileInputCombo" accept=".xlsx,.xls,.csv" multiple>
+      <div id="msgCombo" class="muted"></div>
+      <div id="comboSummary" class="muted" style="margin-top:8px;line-height:1.6;">${comboSummaryHtml()}</div>
     </div>
     <div class="uploadBlock">
-      <h3>2. Serial Number</h3>
-      <div class="hint">Kolom: <b>Item Code, Item Description, Serial Number, Admission Date, Warehouse Code, Status</b>.</div>
-      <input type="file" id="fileInputSerial" accept=".xlsx,.xls,.csv">
-      <div id="msgSerial" class="muted">${state.serialUpdated ? 'Terakhir: '+state.serialUpdated+' ('+state.serialNumber.length+' baris)' : ''}</div>
-    </div>
-    <div class="uploadBlock">
-      <h3>3. Stock Available (Cabang Lain)</h3>
-      <div class="hint">Kolom: <b>Warehouse Code, Item No., Item Description, Available</b>. Gudang sendiri (SDNC.*) otomatis diabaikan.</div>
-      <input type="file" id="fileInputCabang" accept=".xlsx,.xls,.csv">
-      <div id="msgCabang" class="muted">${state.cabangUpdated ? 'Terakhir: '+state.cabangUpdated+' ('+state.stockCabang.length+' baris gudang lain)' : ''}</div>
-    </div>
-    <div class="uploadBlock">
-      <h3>4. Barcode</h3>
+      <h3>2. Barcode</h3>
       <div class="hint">Kolom: <b>Item No., Item Description, Bar Code</b>. Item tanpa barcode otomatis dilewati.</div>
       <input type="file" id="fileInputBarcode" accept=".xlsx,.xls,.csv">
       <div id="msgBarcode" class="muted">${state.barcodeUpdated ? 'Terakhir: '+state.barcodeUpdated+' ('+state.barcode.length+' baris)' : ''}</div>
@@ -467,13 +468,30 @@ const _xlsxWorkerCode = `
     })).filter(r=>r.itemNo && r.barcode);
     return rows;
   }
+  function detectKind(headers, fileName){
+    const name = String(fileName||'').toLowerCase();
+    if(name.includes('stock opname - stock available')) return 'stockCabang';
+    const norm = s => String(s).trim().toLowerCase().replace(/\\s+/g,' ');
+    const set = new Set(headers.map(norm));
+    if(set.has('list price')) return 'priceList';
+    if(set.has('serial number') || set.has('admission date')) return 'serialNumber';
+    if(set.has('warehouse code') && (set.has('item no.') || set.has('item no'))) return 'stockCabang';
+    return null;
+  }
   onmessage = function(e){
     try{
-      const {kind, buffer} = e.data;
+      const {kind, buffer, fileName} = e.data;
       const wb = XLSX.read(buffer, {type:'array'});
       const rawRows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {raw:true, defval:''});
-      postMessage({ok:true, rows: transform(kind, rawRows)});
-    }catch(err){ postMessage({ok:false}); }
+      if(kind === 'auto'){
+        const headers = rawRows.length ? Object.keys(rawRows[0]) : [];
+        const detected = detectKind(headers, fileName);
+        if(!detected){ postMessage({ok:false, reason:'unknown', fileName}); return; }
+        postMessage({ok:true, kind: detected, rows: transform(detected, rawRows), fileName});
+      } else {
+        postMessage({ok:true, kind, rows: transform(kind, rawRows), fileName});
+      }
+    }catch(err){ postMessage({ok:false, reason:'error', fileName: e.data && e.data.fileName}); }
   };
 `;
 const _xlsxWorkerUrl = URL.createObjectURL(new Blob([_xlsxWorkerCode], {type:'application/javascript'}));
@@ -489,6 +507,17 @@ function readExcel(file, kind, onRows){
   worker.onerror = ()=>{ onRows(null); worker.terminate(); };
   reader.readAsArrayBuffer(file);
 }
+// Untuk upload gabungan: jenis file (priceList/serialNumber/stockCabang) dikenali otomatis dari kolomnya.
+// onResult menerima objek lengkap: {ok, kind, rows, fileName, reason}
+function readExcelDetect(file, onResult){
+  const worker = new Worker(_xlsxWorkerUrl);
+  const reader = new FileReader();
+  reader.onload = (ev)=>{ worker.postMessage({kind:'auto', buffer: ev.target.result, fileName: file.name}, [ev.target.result]); };
+  reader.onerror = ()=>{ onResult({ok:false, reason:'read', fileName:file.name}); worker.terminate(); };
+  worker.onmessage = (e)=>{ onResult(e.data); worker.terminate(); };
+  worker.onerror = ()=>{ onResult({ok:false, reason:'error', fileName:file.name}); worker.terminate(); };
+  reader.readAsArrayBuffer(file);
+}
 function pick(r, ...keys){
   const norm = s => String(s).trim().toLowerCase().replace(/\s+/g,' ');
   const wanted = keys.map(norm);
@@ -502,45 +531,49 @@ function toNumber(v){
   return isNaN(n) ? 0 : n;
 }
 function bindUpload(){
-  document.getElementById('fileInputPrice').onchange = (e)=>{
-    const file = e.target.files[0]; if(!file) return;
-    const msg = document.getElementById('msgPrice'); msg.textContent = 'Memproses file...';
-    readExcel(file, 'priceList', async (parsed)=>{
-      if(!parsed){ msg.textContent = 'Gagal membaca file.'; return; }
-      msg.textContent = `Mengunggah ${parsed.length} baris ke database bersama...`;
-      const updatedAt = await pushToFirestore('priceList', parsed, 'priceList');
-      state.items = parsed; state.itemsUpdated = fmtDate(updatedAt);
-      buildIndices();
-      msg.textContent = `Terakhir: ${state.itemsUpdated} (${state.items.length} baris)`;
-    });
-  };
-  document.getElementById('fileInputSerial').onchange = (e)=>{
-    const file = e.target.files[0]; if(!file) return;
-    const msg = document.getElementById('msgSerial'); msg.textContent = 'Memproses file...';
-    readExcel(file, 'serialNumber', async (parsed)=>{
-      if(!parsed){ msg.textContent = 'Gagal membaca file.'; return; }
-      msg.textContent = `Mengunggah ${parsed.length} baris ke database bersama...`;
-      const updatedAt = await pushToFirestore('serialNumber', parsed, 'serialNumber', (done,total)=>{
-        msg.textContent = `Mengunggah... bagian ${done}/${total}`;
+  document.getElementById('fileInputCombo').onchange = (e)=>{
+    const files = Array.from(e.target.files || []); if(!files.length) return;
+    const msg = document.getElementById('msgCombo');
+    msg.style.color = 'var(--muted)';
+    msg.textContent = `Membaca & mengenali jenis ${files.length} file...`;
+    Promise.all(files.map(f=> new Promise(resolve=> readExcelDetect(f, resolve))))
+      .then(async (results)=>{
+        const failed = results.filter(r=>!r.ok);
+        if(failed.length){
+          msg.style.color = '#e07a7a';
+          msg.textContent = `Dibatalkan: ${failed.length} file tidak dikenali jenisnya (${failed.map(f=>f.fileName).join(', ')}). Tidak ada yang diupload, cek lagi kolom di file tersebut.`;
+          return;
+        }
+        const kinds = results.map(r=>r.kind);
+        const dupe = kinds.find((k,i)=>kinds.indexOf(k)!==i);
+        if(dupe){
+          msg.style.color = '#e07a7a';
+          msg.textContent = `Dibatalkan: ada lebih dari 1 file dengan jenis yang sama (${dupe}). Pilih file sekali untuk tiap jenis.`;
+          return;
+        }
+        // semua file valid & jenisnya unik -> upload satu per satu
+        const labels = {priceList:'Price List', serialNumber:'Serial Number', stockCabang:'Stock Cabang Lain'};
+        for(const r of results){
+          msg.style.color = 'var(--muted)';
+          msg.textContent = `Mengunggah ${labels[r.kind]} (${r.rows.length} baris)...`;
+          const progressCb = (done,total)=>{ msg.textContent = `Mengunggah ${labels[r.kind]}... bagian ${done}/${total}`; };
+          if(r.kind === 'priceList'){
+            const updatedAt = await pushToFirestore('priceList', r.rows, 'priceList');
+            state.items = r.rows; state.itemsUpdated = fmtDate(updatedAt);
+          } else if(r.kind === 'serialNumber'){
+            const updatedAt = await pushToFirestore('serialNumber', r.rows, 'serialNumber', progressCb);
+            state.serialNumber = r.rows; state.serialUpdated = fmtDate(updatedAt);
+          } else if(r.kind === 'stockCabang'){
+            const updatedAt = await pushToFirestore('stockCabang', r.rows, 'stockCabang', progressCb);
+            state.stockCabang = r.rows; state.cabangUpdated = fmtDate(updatedAt);
+          }
+        }
+        buildIndices();
+        msg.style.color = 'var(--ok)';
+        msg.textContent = `Selesai! ${results.length} file berhasil diupload: ${results.map(r=>labels[r.kind]).join(', ')}.`;
+        const summaryEl = document.getElementById('comboSummary');
+        if(summaryEl) summaryEl.innerHTML = comboSummaryHtml();
       });
-      state.serialNumber = parsed; state.serialUpdated = fmtDate(updatedAt);
-      buildIndices();
-      msg.textContent = `Terakhir: ${state.serialUpdated} (${state.serialNumber.length} baris)`;
-    });
-  };
-  document.getElementById('fileInputCabang').onchange = (e)=>{
-    const file = e.target.files[0]; if(!file) return;
-    const msg = document.getElementById('msgCabang'); msg.textContent = 'Memproses file... (file besar, mohon tunggu)';
-    readExcel(file, 'stockCabang', async (parsed)=>{
-      if(!parsed){ msg.textContent = 'Gagal membaca file.'; return; }
-      msg.textContent = `Mengunggah ${parsed.length} baris ke database bersama...`;
-      const updatedAt = await pushToFirestore('stockCabang', parsed, 'stockCabang', (done,total)=>{
-        msg.textContent = `Mengunggah... bagian ${done}/${total}`;
-      });
-      state.stockCabang = parsed; state.cabangUpdated = fmtDate(updatedAt);
-      buildIndices();
-      msg.textContent = `Terakhir: ${state.cabangUpdated} (${state.stockCabang.length} baris gudang lain)`;
-    });
   };
   document.getElementById('fileInputBarcode').onchange = (e)=>{
     const file = e.target.files[0]; if(!file) return;
