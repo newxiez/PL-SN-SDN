@@ -187,16 +187,18 @@ async function loadFromFirestore(collectionName, metaKey, tagChunk){
 function fmtDate(iso){ return iso ? new Date(iso).toLocaleString('id-ID') : ''; }
 
 async function loadAll(){
-  const [pl, sn, sc, bc] = await Promise.all([
+  const [pl, sn, sc, bc, ms] = await Promise.all([
     loadFromFirestore('priceList', 'priceList'),
     loadFromFirestore('serialNumber', 'serialNumber'),
     loadFromFirestore('stockCabang', 'stockCabang'),
-    loadFromFirestore('barcode', 'barcode')
+    loadFromFirestore('barcode', 'barcode'),
+    loadFromFirestore('manualSupport', 'manualSupport')
   ]);
   state.items = pl.rows; state.itemsUpdated = fmtDate(pl.updatedAt);
   state.serialNumber = sn.rows; state.serialUpdated = fmtDate(sn.updatedAt);
   state.stockCabang = sc.rows; state.cabangUpdated = fmtDate(sc.updatedAt);
   state.barcode = bc.rows; state.barcodeUpdated = fmtDate(bc.updatedAt);
+  state.manualSupport = ms.rows; state.manualSupportUpdated = fmtDate(ms.updatedAt);
   buildIndices();
   state.loaded = true;
   render();
@@ -207,11 +209,21 @@ function buildIndices(){
   state.serialNumber.forEach(sn=>{ sn._codeL = sn.itemCode.toLowerCase(); sn._dsL = sn.deskripsi.toLowerCase(); sn._snL = sn.serial.toLowerCase(); });
   state.stockCabang.forEach(sc=>{ sc._noL = sc.itemNo.toLowerCase(); sc._dsL = sc.deskripsi.toLowerCase(); });
   state.barcode.forEach(bc=>{ bc._noL = bc.itemNo.toLowerCase(); bc._dsL = bc.deskripsi.toLowerCase(); bc._bcL = bc.barcode.toLowerCase(); });
+  state.manualSupport.forEach(m=>{ m._dsL = m.deskripsi.toLowerCase(); m._bcL = (m.barcode||'').toLowerCase(); });
   const idx1 = {}; state.items.forEach(it=>{ (idx1[it.itemNo] = idx1[it.itemNo] || []).push(it); });
   const idx2 = {}; state.serialNumber.forEach(sn=>{ (idx2[sn.itemCode] = idx2[sn.itemCode] || []).push(sn); });
   const idx3 = {}; state.stockCabang.forEach(sc=>{ (idx3[sc.itemNo] = idx3[sc.itemNo] || []).push(sc); });
   const idx4 = {}; state.barcode.forEach(bc=>{ (idx4[bc.itemNo] = idx4[bc.itemNo] || []).push(bc); });
-  state.itemsIndex = idx1; state.serialIndex = idx2; state.cabangIndex = idx3; state.barcodeIndex = idx4;
+  const idx5 = {}; state.manualSupport.forEach(m=>{ idx5[m._dsL] = m; }); // sudah teragregasi 1 baris per deskripsi
+  state.itemsIndex = idx1; state.serialIndex = idx2; state.cabangIndex = idx3; state.barcodeIndex = idx4; state.manualIndex = idx5;
+
+  // deskripsi yang sudah "dikenal" lewat Item No. asli (dari salah satu sumber data utama)
+  const known = new Set();
+  state.items.forEach(it=> known.add(it._dsL));
+  state.serialNumber.forEach(sn=> known.add(sn._dsL));
+  state.stockCabang.forEach(sc=> known.add(sc._dsL));
+  state.barcode.forEach(bc=> known.add(bc._dsL));
+  state.knownDescSet = known;
 }
 
 // ---------------- Auth ----------------
@@ -297,6 +309,7 @@ function stokView(){
       ${state.itemsUpdated ? 'Price list: '+state.itemsUpdated : 'Price list belum ada.'}
       ${state.serialUpdated ? ' &middot; Serial: '+state.serialUpdated : ''}
       ${state.cabangUpdated ? ' &middot; Cabang lain: '+state.cabangUpdated : ''}
+      ${state.manualSupportUpdated ? ' &middot; Pendukung manual: '+state.manualSupportUpdated : ''}
       ${state.barcodeUpdated ? ' &middot; Barcode: '+state.barcodeUpdated : ''}
     </div>
     <input type="text" id="searchBox" value="${state.query.replace(/"/g,'&quot;')}" placeholder="Ketik Item No., Item Description, Barcode, atau Serial Number...">
@@ -316,33 +329,55 @@ function parseTgl(str){
 }
 function buildResults(q, category){
   q = q.toLowerCase();
-  let keySet;
+  let keySet, manualOnlyKeys = [];
   if(q){
     keySet = new Set();
     state.items.forEach(it=>{ if(it._noL.includes(q)||it._dsL.includes(q)) keySet.add(it.itemNo); });
     state.serialNumber.forEach(sn=>{ if(sn._codeL.includes(q)||sn._dsL.includes(q)||sn._snL.includes(q)) keySet.add(sn.itemCode); });
     state.stockCabang.forEach(sc=>{ if(sc._noL.includes(q)||sc._dsL.includes(q)) keySet.add(sc.itemNo); });
     state.barcode.forEach(bc=>{ if(bc._noL.includes(q)||bc._dsL.includes(q)||bc._bcL.includes(q)) keySet.add(bc.itemNo); });
+    // item yang HANYA ada di file manual (tidak dikenal lewat Item No. di sumber manapun) tetap muncul sendiri
+    state.manualSupport.forEach(m=>{
+      if((m._dsL.includes(q)||m._bcL.includes(q)) && !state.knownDescSet.has(m._dsL)) manualOnlyKeys.push('MANUAL::'+m._dsL);
+    });
   } else {
     keySet = new Set([...Object.keys(state.itemsIndex), ...Object.keys(state.serialIndex), ...Object.keys(state.cabangIndex), ...Object.keys(state.barcodeIndex)]);
   }
   let keys = Array.from(keySet);
   if(category){ keys = keys.filter(k => k.split('.')[0] === category); }
-  return keys.map(itemNo=>{
+  const results = keys.map(itemNo=>{
     const plRows = state.itemsIndex[itemNo] || [];
     const snRows = state.serialIndex[itemNo] || [];
     const scRows = state.cabangIndex[itemNo] || [];
     const bcRows = state.barcodeIndex[itemNo] || [];
     const deskripsi = (plRows[0]&&plRows[0].deskripsi) || (snRows[0]&&snRows[0].deskripsi) || (scRows[0]&&scRows[0].deskripsi) || (bcRows[0]&&bcRows[0].deskripsi) || '';
-    const barcode = bcRows[0] ? bcRows[0].barcode : '';
+    let barcode = bcRows[0] ? bcRows[0].barcode : '';
+    let barcodeFromManual = false;
     const ownByGudang = {}; const otherGudang = new Set();
     snRows.forEach(sn=>{
       if(OWN_WAREHOUSES.includes(sn.gudang)) (ownByGudang[sn.gudang]=ownByGudang[sn.gudang]||[]).push(sn);
       else if(sn.gudang) otherGudang.add(sn.gudang);
     });
     scRows.forEach(sc=>{ if(sc.gudang) otherGudang.add(sc.gudang); });
-    return {itemNo, deskripsi, barcode, plRows, ownByGudang, otherGudang};
+    // lengkapi dari file manual: barcode jika belum ada, dan harga referensi jika tidak ready di gudang sendiri
+    let manualHarga = 0;
+    const manualEntry = deskripsi ? state.manualIndex[deskripsi.toLowerCase()] : null;
+    if(manualEntry){
+      if(!barcode && manualEntry.barcode){ barcode = manualEntry.barcode; barcodeFromManual = true; }
+      if(!plRows.length && manualEntry.harga) manualHarga = manualEntry.harga;
+      (manualEntry.gudangList||[]).forEach(g=> otherGudang.add(g));
+    }
+    return {itemNo, deskripsi, barcode, barcodeFromManual, manualHarga, plRows, ownByGudang, otherGudang};
   });
+  const manualOnlyResults = manualOnlyKeys.map(key=>{
+    const dsL = key.slice('MANUAL::'.length);
+    const m = state.manualIndex[dsL];
+    return {
+      itemNo: '(data manual)', deskripsi: m.deskripsi, barcode: m.barcode, barcodeFromManual: !!m.barcode,
+      manualHarga: m.harga||0, plRows: [], ownByGudang: {}, otherGudang: new Set(m.gudangList||[]), manualOnly: true
+    };
+  });
+  return results.concat(manualOnlyResults);
 }
 function itemCardHtml(rec){
   const plTable = rec.plRows.length ? `
@@ -350,7 +385,7 @@ function itemCardHtml(rec){
       <thead><tr><th>Warehouse Code</th><th>Available</th><th>Allocated</th><th>Harga</th></tr></thead>
       <tbody>${rec.plRows.map(it=>`<tr><td>${it.gudang}</td><td>${it.available}</td><td>${it.allocated}</td>
         <td>Rp${Number(it.harga||0).toLocaleString('id-ID')}</td></tr>`).join('')}</tbody>
-    </table></div>` : '<div class="muted">Tidak ada di price list gudang sendiri.</div>';
+    </table></div>` : `<div class="muted">Tidak ada di price list gudang sendiri.${rec.manualHarga ? ` Harga referensi (manual): Rp${Number(rec.manualHarga).toLocaleString('id-ID')}` : ''}</div>`;
   const ownSerialBlocks = Object.keys(rec.ownByGudang).map(gudang=>{
     const list = rec.ownByGudang[gudang].slice().sort((a,b)=>{
       const da=parseTgl(a.tanggal), db_=parseTgl(b.tanggal); return (da&&db_) ? da-db_ : 0;
@@ -366,7 +401,10 @@ function itemCardHtml(rec){
     return `<div class="snGroupLabel">Serial Number &mdash; ${gudang}</div><div class="snList">${chips}</div>`;
   }).join('');
   const indent = rec.otherGudang.size ? `<div class="indentBox">Status: Indent &mdash; tersedia di gudang: ${Array.from(rec.otherGudang).join(', ')}</div>` : '';
-  return `<div class="itemCard"><h3>${rec.deskripsi} <span class="itemNo">(${rec.itemNo})</span></h3>${rec.barcode ? `<div class="muted" style="margin:-4px 0 10px;">Barcode: ${rec.barcode}</div>` : ''}${plTable}${ownSerialBlocks}${indent}</div>`;
+  const barcodeLine = rec.barcode ? `<div class="muted" style="margin:-4px 0 10px;">Barcode: ${rec.barcode}${rec.barcodeFromManual ? ' (manual)' : ''}</div>` : '';
+  const body = rec.manualOnly ? `${barcodeLine}${rec.manualHarga ? `<div class="muted" style="margin:-4px 0 10px;">Harga referensi (manual): Rp${Number(rec.manualHarga).toLocaleString('id-ID')}</div>` : ''}${indent}`
+    : `${barcodeLine}${plTable}${ownSerialBlocks}${indent}`;
+  return `<div class="itemCard"><h3>${rec.deskripsi} <span class="itemNo">(${rec.itemNo})</span></h3>${body}</div>`;
 }
 
 const RESULT_CAP = 40;
@@ -420,6 +458,12 @@ function uploadView(){
       <input type="file" id="fileInputBarcode" accept=".xlsx,.xls,.csv">
       <div id="msgBarcode" class="muted">${state.barcodeUpdated ? 'Terakhir: '+state.barcodeUpdated+' ('+state.barcode.length+' baris)' : ''}</div>
     </div>
+    <div class="uploadBlock">
+      <h3>3. Manual Serial Number / ACC / Price List</h3>
+      <div class="hint">Kolom: <b>Item Description, Barcode/Imei, Price, WhsCode</b>. Dipakai sebagai pendukung: melengkapi barcode yang belum ada di file Barcode, dan memberi harga referensi untuk item yang berstatus Indent di gudang sendiri. Baris gudang sendiri (SDNC.*) otomatis diabaikan.</div>
+      <input type="file" id="fileInputManual" accept=".xlsx,.xls,.csv">
+      <div id="msgManual" class="muted">${state.manualSupportUpdated ? 'Terakhir: '+state.manualSupportUpdated+' ('+state.manualSupport.length+' deskripsi unik)' : ''}</div>
+    </div>
   </div>`;
 }
 // Baca & parsing Excel dilakukan di Web Worker terpisah supaya halaman tidak "macet"
@@ -466,6 +510,36 @@ const _xlsxWorkerCode = `
       deskripsi: String(pick(r,['Item Description'])||'').trim(),
       barcode: String(pick(r,['Bar Code','Barcode'])||'').trim()
     })).filter(r=>r.itemNo && r.barcode);
+    if(kind === 'manual'){
+      function mode(arr){
+        if(!arr.length) return '';
+        const freq = {}; let best = arr[0], bestCount = 0;
+        arr.forEach(v=>{ freq[v] = (freq[v]||0)+1; if(freq[v] > bestCount){ bestCount = freq[v]; best = v; } });
+        return best;
+      }
+      const ownSet = new Set(OWN_WAREHOUSES);
+      const groups = {};
+      rows.forEach(r=>{
+        const whs = String(pick(r,['WhsCode'])||'').trim();
+        if(ownSet.has(whs)) return; // gudang sendiri diabaikan, sudah ada Price List resmi
+        const deskripsi = String(pick(r,['Item Description'])||'').trim();
+        if(!deskripsi) return;
+        const key = deskripsi.toLowerCase();
+        const bcImei = String(pick(r,['Barcode/Imei','Barcode','Imei'])||'').trim();
+        const barcodePart = bcImei.split('-')[0].trim();
+        const harga = toNumber(pick(r,['Price']));
+        if(!groups[key]) groups[key] = { deskripsi, barcodes: [], prices: [], gudangSet: {} };
+        if(barcodePart) groups[key].barcodes.push(barcodePart);
+        if(harga) groups[key].prices.push(harga);
+        if(whs) groups[key].gudangSet[whs] = true;
+      });
+      return Object.values(groups).map(g=>({
+        deskripsi: g.deskripsi,
+        barcode: mode(g.barcodes),
+        harga: mode(g.prices),
+        gudangList: Object.keys(g.gudangSet)
+      }));
+    }
     return rows;
   }
   function detectKind(headers, fileName){
@@ -585,6 +659,20 @@ function bindUpload(){
       state.barcode = parsed; state.barcodeUpdated = fmtDate(updatedAt);
       buildIndices();
       msg.textContent = `Terakhir: ${state.barcodeUpdated} (${state.barcode.length} baris)`;
+    });
+  };
+  document.getElementById('fileInputManual').onchange = (e)=>{
+    const file = e.target.files[0]; if(!file) return;
+    const msg = document.getElementById('msgManual'); msg.textContent = 'Memproses file... (file besar, mohon tunggu)';
+    readExcel(file, 'manual', async (parsed)=>{
+      if(!parsed){ msg.textContent = 'Gagal membaca file.'; return; }
+      msg.textContent = `Mengunggah ${parsed.length} deskripsi unik ke database bersama...`;
+      const updatedAt = await pushToFirestore('manualSupport', parsed, 'manualSupport', (done,total)=>{
+        msg.textContent = `Mengunggah... bagian ${done}/${total}`;
+      });
+      state.manualSupport = parsed; state.manualSupportUpdated = fmtDate(updatedAt);
+      buildIndices();
+      msg.textContent = `Terakhir: ${state.manualSupportUpdated} (${state.manualSupport.length} deskripsi unik)`;
     });
   };
 }
