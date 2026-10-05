@@ -95,7 +95,8 @@ let state = {
   itemsIndex: {}, serialIndex: {}, cabangIndex: {}, barcodeIndex: {},
   manualIndex: {}, knownDescSet: new Set(),
   staffMode: false, tab: 'upload', showLogin: false, loginErr: '',
-  categoryFilter: null, query: '', loaded: false
+  categoryFilter: null, query: '', loaded: false,
+  publicView: 'stok', promotorBrand: null
 };
 
 // ---------------- Firestore helpers ----------------
@@ -244,8 +245,15 @@ function render(){
 
   const app = document.getElementById('app');
   if(!state.staffMode){
-    app.innerHTML = stokView();
-    bindStok();
+    app.innerHTML = `
+      <div class="tabs" id="publicTabs">
+        <div class="tab ${state.publicView==='stok'?'active':''}" data-pubtab="stok">Cek Stok</div>
+        <div class="tab ${state.publicView==='promotor'?'active':''}" data-pubtab="promotor">Stock Promotor</div>
+      </div>
+      <div id="publicBody"></div>`;
+    document.getElementById('publicBody').innerHTML = state.publicView==='promotor' ? promotorView() : stokView();
+    document.querySelectorAll('#publicTabs .tab').forEach(el=>el.onclick=()=>{ state.publicView = el.dataset.pubtab; render(); });
+    if(state.publicView==='promotor') bindPromotor(); else bindStok();
   } else {
     app.innerHTML = `
       <div class="tabs">${tabBtn('stok','Cek Stok')}${tabBtn('upload','Upload Excel')}</div>
@@ -300,6 +308,46 @@ function catChipsHtml(){
   if(!cats.length) return '';
   const chip = (id,label) => `<div class="tab ${state.categoryFilter===id?'active':''}" data-cat="${id===null?'':id}">${label}</div>`;
   return `<div class="tabs catRow">${chip(null,'Semua')}${cats.map(c=>chip(c,c)).join('')}</div>`;
+}
+
+function getGadBrands(){
+  const set = new Set();
+  state.items.forEach(it=>{
+    const parts = it.itemNo.split('.');
+    if(parts[0]==='GAD' && parts[1]) set.add(parts[1]);
+  });
+  return Array.from(set).sort();
+}
+function promotorRows(brand){
+  const prefix = 'GAD.'+brand+'.';
+  return state.items
+    .filter(it=> it.itemNo.startsWith(prefix) && it.available > 0)
+    .map(it=>({ deskripsi: it.deskripsi, gudang: it.gudang, available: it.available }))
+    .sort((a,b)=> a.deskripsi.localeCompare(b.deskripsi) || a.gudang.localeCompare(b.gudang));
+}
+function promotorView(){
+  const brands = getGadBrands();
+  const chips = brands.map(b=>`<div class="tab ${state.promotorBrand===b?'active':''}" data-brand="${b}">${b}</div>`).join('');
+  let tableHtml = '';
+  if(state.promotorBrand){
+    const rows = promotorRows(state.promotorBrand);
+    tableHtml = rows.length ? `
+      <div class="tablewrap"><table>
+        <thead><tr><th>Nama Item</th><th>Warehouse Code</th><th>Stock</th></tr></thead>
+        <tbody>${rows.map(r=>`<tr><td>${r.deskripsi}</td><td>${r.gudang}</td><td>${r.available}</td></tr>`).join('')}</tbody>
+      </table></div>` : '<div class="muted">Tidak ada stock ready untuk brand ini di gudang sendiri.</div>';
+  }
+  return `<div class="card">
+    <h2>Stock Promotor &mdash; Gadget (GAD)</h2>
+    <div class="hint">Pilih brand untuk melihat stock yang ready di gudang sendiri.</div>
+    <div class="tabs catRow" id="brandChips">${chips || '<span class="muted">Belum ada data Price List.</span>'}</div>
+    ${tableHtml}
+  </div>`;
+}
+function bindPromotor(){
+  document.querySelectorAll('#brandChips .tab').forEach(chip=>{
+    chip.onclick = ()=>{ state.promotorBrand = chip.dataset.brand; render(); };
+  });
 }
 
 function stokView(){
