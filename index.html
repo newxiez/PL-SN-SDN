@@ -54,6 +54,12 @@ th{color:var(--muted);font-weight:500;}
 .snChip.allocated{opacity:.6;text-decoration:line-through;}
 .snChip button{margin-left:6px;padding:3px 8px;font-size:11px;vertical-align:middle;text-decoration:none;}
 .indentBox{margin-top:10px;font-size:13px;background:rgba(224,168,64,.08);border:1px solid var(--amber-dim);border-radius:6px;padding:8px 10px;color:var(--amber);}
+.indentDetails{margin-top:10px;font-size:13px;background:rgba(224,168,64,.08);border:1px solid var(--amber-dim);border-radius:6px;padding:8px 10px;color:var(--amber);}
+.indentDetails summary{cursor:pointer;font-weight:600;list-style:none;}
+.indentDetails summary::-webkit-details-marker{display:none;}
+.indentDetails summary::before{content:'\25B8 ';}
+.indentDetails[open] summary::before{content:'\25BE ';}
+.indentDetails .indentList{margin-top:6px;}
 </style>
 </head>
 <body>
@@ -448,7 +454,13 @@ function itemCardHtml(rec){
     }).join('');
     return `<div class="snGroupLabel">Serial Number &mdash; ${gudang}</div><div class="snList">${chips}</div>`;
   }).join('');
-  const indent = rec.otherGudang.size ? `<div class="indentBox">Status: Indent &mdash; tersedia di gudang: ${Array.from(rec.otherGudang).join(', ')}</div>` : '';
+  const hasReadyOwn = rec.plRows.some(r=> (r.available||0) > 0);
+  const indentList = Array.from(rec.otherGudang).join(', ');
+  const indent = rec.otherGudang.size ? (
+    hasReadyOwn
+      ? `<details class="indentDetails"><summary>Status: Indent (klik untuk lihat gudang lain)</summary><div class="indentList">Tersedia di gudang: ${indentList}</div></details>`
+      : `<div class="indentBox">Status: Indent &mdash; tersedia di gudang: ${indentList}</div>`
+  ) : '';
   const barcodeLine = rec.barcode ? `<div class="muted" style="margin:-4px 0 10px;">Barcode: ${rec.barcode}${rec.barcodeFromManual ? ' (manual)' : ''}</div>` : '';
   const body = rec.manualOnly ? `${barcodeLine}${rec.manualHarga ? `<div class="muted" style="margin:-4px 0 10px;">Harga referensi (manual): Rp${Number(rec.manualHarga).toLocaleString('id-ID')}</div>` : ''}${indent}`
     : `${barcodeLine}${plTable}${ownSerialBlocks}${indent}`;
