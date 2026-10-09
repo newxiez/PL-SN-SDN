@@ -302,10 +302,12 @@ function renderLoginOverlay(){
   document.getElementById('loginCancel').onclick = ()=>{ state.showLogin=false; render(); };
 }
 
+// Kategori yang tombol filternya disembunyikan (itemnya tetap bisa dicari lewat kotak pencarian)
+const HIDDEN_CATEGORIES = new Set(['BDL','FIX','HDH','OPR','SPR']);
 function getCategories(){
   const set = new Set();
   [state.itemsIndex, state.serialIndex, state.cabangIndex, state.barcodeIndex].forEach(idx=>{
-    Object.keys(idx).forEach(k=>{ const p=k.split('.')[0]; if(p) set.add(p); });
+    Object.keys(idx).forEach(k=>{ const p=k.split('.')[0]; if(p && !HIDDEN_CATEGORIES.has(p)) set.add(p); });
   });
   return Array.from(set).sort();
 }
