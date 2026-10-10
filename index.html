@@ -60,6 +60,13 @@ th{color:var(--muted);font-weight:500;}
 .indentDetails summary::before{content:'\25B8 ';}
 .indentDetails[open] summary::before{content:'\25BE ';}
 .indentDetails .indentList{margin-top:6px;}
+.skGroup{border-top:1px solid var(--line);padding:6px 0;}
+.skGroup summary{cursor:pointer;font-size:13px;color:var(--amber);padding:4px 0;}
+.skRow{display:flex;gap:10px;justify-content:space-between;padding:5px 0;border-bottom:1px dashed var(--line);font-size:12.5px;}
+.skRow .skL{color:var(--muted);flex:1;}
+.skRow .skV{text-align:right;min-width:150px;font-weight:600;}
+.skV.ok{color:var(--ok);} .skV.pay{color:var(--amber);} .skV.na{color:var(--muted);font-weight:400;}
+.skHead{font-size:12px;color:var(--muted);margin-top:4px;line-height:1.6;}
 </style>
 </head>
 <body>
@@ -102,7 +109,8 @@ let state = {
   manualIndex: {}, knownDescSet: new Set(),
   staffMode: false, tab: 'upload', showLogin: false, loginErr: '',
   categoryFilter: null, xsOnly: false, query: '', loaded: false,
-  publicView: 'stok', promotorBrand: null
+  publicView: 'stok', promotorBrand: null,
+  leasingHeader: null, leasingRows: [], leasingUpdated: '', leasingErr: '', skemaQuery: '', skemaProvider: null
 };
 
 // ---------------- Firestore helpers ----------------
@@ -135,11 +143,21 @@ async function idbSet(key, value){
   }catch(e){ /* cache gagal, tidak masalah, tetap jalan tanpa cache */ }
 }
 
+async function idbDel(key){
+  try{
+    const idb = await idbOpen();
+    idb.transaction(IDB_STORE,'readwrite').objectStore(IDB_STORE).delete(key);
+  }catch(e){}
+}
+function escHtml(v){ return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function rpFmt(n){ return 'Rp ' + Math.abs(Number(n)||0).toLocaleString('id-ID'); }
+
 // Upload per-chunk dengan concurrency terbatas (bukan satu batch raksasa) +
 // progress callback, supaya file besar (Stock Cabang Lain) lebih cepat & terlihat progresnya.
-async function pushToFirestore(collectionName, rows, metaKey, onProgress){
+async function pushToFirestore(collectionName, rows, metaKey, onProgress, chunkSize){
   const chunks = [];
-  for(let i=0;i<rows.length;i+=CHUNK_SIZE) chunks.push(rows.slice(i,i+CHUNK_SIZE));
+  const cs = chunkSize || CHUNK_SIZE;
+  for(let i=0;i<rows.length;i+=cs) chunks.push(rows.slice(i,i+cs));
   const metaRef = db.collection('meta').doc(metaKey);
   const metaSnap = await metaRef.get();
   const oldCount = metaSnap.exists ? (metaSnap.data().chunkCount || 0) : 0;
@@ -234,8 +252,29 @@ function buildIndices(){
 }
 
 // ---------------- Auth ----------------
+// Skema Leasing HANYA dimuat setelah login staff, dan dibuang lagi saat keluar mode staff.
+function applyLeasing(rows, updatedAt){
+  state.leasingHeader = rows.find(r=>r.t==='h') || null;
+  state.leasingRows = rows.filter(r=>r.t==='i');
+  state.leasingUpdated = fmtDate(updatedAt);
+}
+async function loadLeasing(){
+  try{
+    const r = await loadFromFirestore('leasingScheme', 'leasingScheme');
+    applyLeasing(r.rows, r.updatedAt);
+    state.leasingErr = '';
+  }catch(e){ state.leasingErr = 'Gagal memuat skema leasing (cek aturan Firestore & koneksi).'; }
+  if(state.staffMode && state.loaded) render();
+}
+function clearLeasing(){
+  state.leasingHeader = null; state.leasingRows = []; state.leasingUpdated = ''; state.leasingErr = '';
+  state.skemaQuery = ''; state.skemaProvider = null;
+  idbDel('leasingScheme');
+}
 auth.onAuthStateChanged(user=>{
   state.staffMode = !!user;
+  if(user){ loadLeasing(); }
+  else { clearLeasing(); if(state.tab==='skema') state.tab = 'stok'; }
   if(state.loaded) render();
 });
 
@@ -262,11 +301,11 @@ function render(){
     if(state.publicView==='promotor') bindPromotor(); else bindStok();
   } else {
     app.innerHTML = `
-      <div class="tabs">${tabBtn('stok','Cek Stok')}${tabBtn('upload','Upload Excel')}</div>
+      <div class="tabs">${tabBtn('stok','Cek Stok')}${tabBtn('skema','Skema Leasing')}${tabBtn('upload','Upload Excel')}</div>
       <div id="tabBody"></div>`;
-    document.getElementById('tabBody').innerHTML = state.tab === 'stok' ? stokView() : uploadView();
+    document.getElementById('tabBody').innerHTML = state.tab === 'stok' ? stokView() : (state.tab === 'skema' ? skemaView() : uploadView());
     document.querySelectorAll('.tabs > .tab').forEach(el=>el.onclick=()=>{ state.tab = el.dataset.tab; render(); });
-    if(state.tab==='stok') bindStok(); if(state.tab==='upload') bindUpload();
+    if(state.tab==='stok') bindStok(); if(state.tab==='skema') bindSkema(); if(state.tab==='upload') bindUpload();
   }
   renderLoginOverlay();
 }
@@ -508,6 +547,86 @@ function comboSummaryHtml(){
     Serial Number: ${state.serialUpdated ? state.serialUpdated+' ('+state.serialNumber.length+' baris)' : '-'}<br>
     Stock Cabang Lain: ${state.cabangUpdated ? state.cabangUpdated+' ('+state.stockCabang.length+' baris gudang lain)' : '-'}`;
 }
+// ---------- Skema Leasing (khusus mode staff) ----------
+function skemaStatus(v, e){
+  // v: 'Y' (centang) | 'N' (silang) | angka | '' (tidak ada data)
+  if(v === 'Y') return {cls:'ok', text:'Tanpa admin tambahan'};
+  if(v === 'N'){
+    return e > 0 ? {cls:'pay', text:'Admin tambahan '+rpFmt(e)+' (ikut kolom E)'} : {cls:'ok', text:'Tanpa admin tambahan (kolom E = 0)'};
+  }
+  if(typeof v === 'number'){
+    if(v > 0) return {cls:'pay', text:'Admin tambahan '+rpFmt(v)+' (dibayar pembeli)'};
+    if(v < 0) return {cls:'pay', text:'Admin kurang disubsidi, pembeli bayar selisih '+rpFmt(v)};
+    return {cls:'ok', text:'Tanpa admin tambahan'};
+  }
+  return {cls:'na', text:'Tidak ada data'};
+}
+function skemaGroups(){
+  const h = state.leasingHeader; if(!h) return [];
+  const groups = [];
+  h.s.forEach((sc,i)=>{
+    let g = groups.find(x=>x.name===sc.g);
+    if(!g){ g = {name: sc.g, idx: []}; groups.push(g); }
+    g.idx.push(i);
+  });
+  return groups;
+}
+function skemaView(){
+  if(!state.leasingHeader){
+    return `<div class="card muted">${state.leasingErr ? escHtml(state.leasingErr) : 'Belum ada data Skema Leasing. Upload dulu di tab Upload Excel (blok 4).'}</div>`;
+  }
+  const chip = (id,label)=> `<div class="tab ${state.skemaProvider===id?'active':''}" data-prov="${id===null?'':escHtml(id)}">${escHtml(label)}</div>`;
+  const chips = chip(null,'Semua') + chip('__baf','BAF / MEGAZIP') + skemaGroups().map(g=>chip(g.name,g.name)).join('');
+  return `<div class="card">
+    <input type="text" id="skemaBox" placeholder="Cari nama item / brand..." value="${escHtml(state.skemaQuery)}" autocomplete="off">
+    <div class="tabs catRow" id="skemaChips">${chips}</div>
+    <div class="muted" style="margin-bottom:10px;">Data skema: ${escHtml(state.leasingUpdated)} (${state.leasingRows.length} item)</div>
+    <div class="skHead">${escHtml(state.leasingHeader.note||'')}</div>
+    <div id="skemaBody" style="margin-top:12px;"></div>
+  </div>`;
+}
+function skemaItemHtml(it){
+  const h = state.leasingHeader, prov = state.skemaProvider;
+  const e = Number(it.e)||0;
+  let head = `<div class="itemCard" style="margin-bottom:14px;">
+    <div><b>${escHtml(it.n)}</b> <span class="itemNo">${escHtml(it.b)}</span></div>
+    <div class="muted">SRP ${rpFmt(it.srp)} &middot; Harga setelah CB ${rpFmt(it.cb)}</div>`;
+  const bafStatus = e > 0 ? {cls:'pay', text:'Admin tambahan '+rpFmt(e)} : {cls:'ok', text:'Tanpa admin tambahan'};
+  head += `<div class="skRow"><span class="skL">BAF / MEGAZIP (kolom E)</span><span class="skV ${bafStatus.cls}">${escHtml(bafStatus.text)}</span></div>`;
+  if(prov !== '__baf'){
+    skemaGroups().forEach(g=>{
+      if(prov && g.name !== prov) return;
+      const rows = g.idx.map(i=>{
+        const st = skemaStatus(it.v[i], e);
+        return `<div class="skRow"><span class="skL">${escHtml(h.s[i].l)}</span><span class="skV ${st.cls}">${escHtml(st.text)}</span></div>`;
+      }).join('');
+      head += `<details class="skGroup" ${prov ? 'open' : ''}><summary>${escHtml(g.name)} (${g.idx.length} skema)</summary>${rows}</details>`;
+    });
+  }
+  return head + '</div>';
+}
+function runSkema(){
+  const body = document.getElementById('skemaBody'); if(!body) return;
+  const words = state.skemaQuery.toLowerCase().split(/\s+/).filter(Boolean);
+  if(!words.length){ body.innerHTML = '<div class="muted">Ketik nama item untuk mengecek skema leasing-nya.</div>'; return; }
+  const res = state.leasingRows.filter(it=>{
+    const t = (it.b+' '+it.n).toLowerCase();
+    return words.every(w=>t.includes(w));
+  });
+  if(!res.length){ body.innerHTML = '<div class="muted">Tidak ditemukan.</div>'; return; }
+  const cap = 15;
+  body.innerHTML = res.slice(0,cap).map(skemaItemHtml).join('') + (res.length>cap ? `<div class="muted">Menampilkan ${cap} dari ${res.length} hasil, persempit pencarian.</div>` : '');
+}
+let skemaTimer = null;
+function bindSkema(){
+  const box = document.getElementById('skemaBox'); if(!box){ return; }
+  box.oninput = ()=>{ state.skemaQuery = box.value; clearTimeout(skemaTimer); skemaTimer = setTimeout(runSkema, 200); };
+  document.querySelectorAll('#skemaChips .tab').forEach(c=>{
+    c.onclick = ()=>{ const v = c.dataset.prov || null; state.skemaProvider = (v===null || state.skemaProvider===v) ? null : v; render(); };
+  });
+  runSkema();
+}
+
 function uploadView(){
   return `<div class="card">
     <div class="uploadBlock">
@@ -528,6 +647,12 @@ function uploadView(){
       <div class="hint">Kolom: <b>Item Description, Barcode/Imei, Price, WhsCode</b>. Dipakai sebagai pendukung: melengkapi barcode yang belum ada di file Barcode, dan memberi harga referensi untuk item yang berstatus Indent di gudang sendiri. Baris gudang sendiri (SDNC.*) otomatis diabaikan.</div>
       <input type="file" id="fileInputManual" accept=".xlsx,.xls,.csv">
       <div id="msgManual" class="muted">${state.manualSupportUpdated ? 'Terakhir: '+state.manualSupportUpdated+' ('+state.manualSupport.length+' deskripsi unik)' : ''}</div>
+    </div>
+    <div class="uploadBlock">
+      <h3>4. Skema Leasing (khusus staff)</h3>
+      <div class="hint">File <b>SKEMA_LEASING_*.xlsx</b> (sheet REKAP). Isinya hanya bisa dilihat di tab <b>Skema Leasing</b> pada mode staff, tidak tampil di halaman umum / promotor.</div>
+      <input type="file" id="fileInputSkema" accept=".xlsx,.xls">
+      <div id="msgSkema" class="muted">${state.leasingUpdated ? 'Terakhir: '+state.leasingUpdated+' ('+state.leasingRows.length+' item)' : ''}</div>
     </div>
   </div>`;
 }
@@ -607,6 +732,40 @@ const _xlsxWorkerCode = `
     }
     return rows;
   }
+  function parseLeasing(aoa){
+    let hi = -1;
+    for(let i=0;i<Math.min(aoa.length,10);i++){
+      if(aoa[i] && String(aoa[i][1]||'').trim().toUpperCase() === 'ITEM NAME'){ hi = i; break; }
+    }
+    if(hi < 0) return [];
+    const FIRST = 7, YES = '\\u2714', NO = '\\u274C';
+    const grp = aoa[hi-1] || [], head = aoa[hi];
+    const note = String((grp[0]||'')).trim();
+    const scheme = []; const cols = [];
+    let curG = '';
+    for(let c=FIRST;c<head.length;c++){
+      const g = String(grp[c]||'').trim(); if(g) curG = g;
+      const l = String(head[c]||'').trim();
+      if(!l) continue;
+      scheme.push({g: curG, l}); cols.push(c);
+    }
+    const out = [{t:'h', note, s: scheme}];
+    for(let r=hi+1;r<aoa.length;r++){
+      const row = aoa[r]; if(!row) continue;
+      const b = String(row[0]||'').trim(), n = String(row[1]||'').trim();
+      if(!b || !n || typeof row[0] === 'number') continue;
+      const v = cols.map(c=>{
+        const x = row[c];
+        if(typeof x === 'number') return x;
+        const sx = String(x==null?'':x);
+        if(sx.indexOf(YES) >= 0) return 'Y';
+        if(sx.indexOf(NO) >= 0) return 'N';
+        return '';
+      });
+      out.push({t:'i', b, n, srp: toNumber(row[2]), cb: toNumber(row[3]), e: toNumber(row[4]), v});
+    }
+    return out;
+  }
   function detectKind(headers, fileName){
     const name = String(fileName||'').toLowerCase();
     if(name.includes('stock opname - stock available')) return 'stockCabang';
@@ -621,6 +780,12 @@ const _xlsxWorkerCode = `
     try{
       const {kind, buffer, fileName} = e.data;
       const wb = XLSX.read(buffer, {type:'array'});
+      if(kind === 'leasing'){
+        const ws = wb.Sheets['REKAP'] || wb.Sheets[wb.SheetNames[0]];
+        const aoa = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:''});
+        postMessage({ok:true, kind, rows: parseLeasing(aoa), fileName});
+        return;
+      }
       const rawRows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {raw:true, defval:''});
       if(kind === 'auto'){
         const headers = rawRows.length ? Object.keys(rawRows[0]) : [];
@@ -738,6 +903,30 @@ function bindUpload(){
       state.manualSupport = parsed; state.manualSupportUpdated = fmtDate(updatedAt);
       buildIndices();
       msg.textContent = `Terakhir: ${state.manualSupportUpdated} (${state.manualSupport.length} deskripsi unik)`;
+    });
+  };
+  document.getElementById('fileInputSkema').onchange = (e)=>{
+    const file = e.target.files[0]; if(!file) return;
+    const msg = document.getElementById('msgSkema');
+    msg.style.color = 'var(--muted)'; msg.textContent = 'Memproses file...';
+    readExcel(file, 'leasing', async (parsed)=>{
+      if(!parsed || parsed.length < 2){
+        msg.style.color = '#e07a7a';
+        msg.textContent = 'Gagal: file tidak dikenali sebagai Skema Leasing (butuh sheet REKAP dengan kolom ITEM NAME). Tidak ada yang diupload.';
+        return;
+      }
+      try{
+        msg.textContent = `Mengunggah skema ${parsed.length-1} item...`;
+        const updatedAt = await pushToFirestore('leasingScheme', parsed, 'leasingScheme', (done,total)=>{
+          msg.textContent = `Mengunggah... bagian ${done}/${total}`;
+        }, 400);
+        applyLeasing(parsed, updatedAt);
+        msg.style.color = 'var(--ok)';
+        msg.textContent = `Terakhir: ${state.leasingUpdated} (${state.leasingRows.length} item)`;
+      }catch(err){
+        msg.style.color = '#e07a7a';
+        msg.textContent = 'Gagal mengunggah: ' + (err && err.message ? err.message : err);
+      }
     });
   };
 }
