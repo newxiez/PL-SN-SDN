@@ -101,7 +101,7 @@ let state = {
   itemsIndex: {}, serialIndex: {}, cabangIndex: {}, barcodeIndex: {},
   manualIndex: {}, knownDescSet: new Set(),
   staffMode: false, tab: 'upload', showLogin: false, loginErr: '',
-  categoryFilter: null, query: '', loaded: false,
+  categoryFilter: null, xsOnly: false, query: '', loaded: false,
   publicView: 'stok', promotorBrand: null
 };
 
@@ -315,7 +315,8 @@ function catChipsHtml(){
   const cats = getCategories();
   if(!cats.length) return '';
   const chip = (id,label) => `<div class="tab ${state.categoryFilter===id?'active':''}" data-cat="${id===null?'':id}">${label}</div>`;
-  return `<div class="tabs catRow">${chip(null,'Semua')}${cats.map(c=>chip(c,c)).join('')}</div>`;
+  const xsChip = `<div class="tab ${state.xsOnly?'active':''}" data-xs="1">(XS)</div>`;
+  return `<div class="tabs catRow">${chip(null,'Semua')}${cats.map(c=>chip(c,c)).join('')}${xsChip}</div>`;
 }
 
 function getGadBrands(){
@@ -433,7 +434,8 @@ function buildResults(q, category){
       manualHarga: m.harga||0, plRows: [], ownByGudang: {}, otherGudang: new Set(m.gudangList||[]), manualOnly: true
     };
   });
-  return results.concat(manualOnlyResults);
+  const all = results.concat(manualOnlyResults);
+  return state.xsOnly ? all.filter(r=> /\(\s*xs\s*\)/i.test(r.deskripsi||'')) : all;
 }
 function itemCardHtml(rec){
   const plTable = rec.plRows.length ? `
@@ -475,7 +477,7 @@ function runSearchAndRenderBody(){
   const body = document.getElementById('resultBody');
   if(!body) return;
   const q = state.query.trim();
-  if(!q && !state.categoryFilter){
+  if(!q && !state.categoryFilter && !state.xsOnly){
     body.innerHTML = (state.items.length||state.serialNumber.length||state.stockCabang.length) ?
       '<div class="muted">Ketik untuk mulai mencari, atau pilih kategori.</div>' : '<div class="muted">Belum ada data.</div>';
     return;
@@ -492,6 +494,7 @@ function bindStok(){
   box.oninput = ()=>{ state.query = box.value; clearTimeout(searchTimer); searchTimer = setTimeout(runSearchAndRenderBody, 200); };
   document.querySelectorAll('.catRow .tab').forEach(chip=>{
     chip.onclick = ()=>{
+      if(chip.dataset.xs){ state.xsOnly = !state.xsOnly; render(); return; }
       const cat = chip.dataset.cat || null;
       state.categoryFilter = (cat===null) ? null : (state.categoryFilter===cat ? null : cat);
       render();
