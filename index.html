@@ -348,14 +348,19 @@ function getCategories(){
   [state.itemsIndex, state.serialIndex, state.cabangIndex, state.barcodeIndex].forEach(idx=>{
     Object.keys(idx).forEach(k=>{ const p=k.split('.')[0]; if(p && !HIDDEN_CATEGORIES.has(p)) set.add(p); });
   });
+  if(set.has('GAD')) set.add('GAD-LDU'); // GAD dipisah: GAD biasa vs GAD berawalan LDU
   return Array.from(set).sort();
+}
+function isLduItem(itemNo){
+  const r = (state.itemsIndex[itemNo]||[])[0] || (state.serialIndex[itemNo]||[])[0] || (state.cabangIndex[itemNo]||[])[0] || (state.barcodeIndex[itemNo]||[])[0];
+  return !!(r && /^\s*ldu\b/i.test(r.deskripsi||''));
 }
 function catChipsHtml(){
   const cats = getCategories();
   if(!cats.length) return '';
   const chip = (id,label) => `<div class="tab ${state.categoryFilter===id?'active':''}" data-cat="${id===null?'':id}">${label}</div>`;
   const xsChip = `<div class="tab ${state.xsOnly?'active':''}" data-xs="1">(XS)</div>`;
-  return `<div class="tabs catRow">${chip(null,'Semua')}${cats.map(c=>chip(c,c)).join('')}${xsChip}</div>`;
+  return `<div class="tabs catRow">${chip(null,'Semua')}${cats.map(c=>chip(c, c==='GAD-LDU' ? 'GAD LDU' : c)).join('')}${xsChip}</div>`;
 }
 
 function getGadBrands(){
@@ -440,7 +445,9 @@ function buildResults(q, category){
     keySet = new Set([...Object.keys(state.itemsIndex), ...Object.keys(state.serialIndex), ...Object.keys(state.cabangIndex), ...Object.keys(state.barcodeIndex)]);
   }
   let keys = Array.from(keySet);
-  if(category){ keys = keys.filter(k => k.split('.')[0] === category); }
+  if(category === 'GAD') keys = keys.filter(k => k.split('.')[0] === 'GAD' && !isLduItem(k));
+  else if(category === 'GAD-LDU') keys = keys.filter(k => k.split('.')[0] === 'GAD' && isLduItem(k));
+  else if(category){ keys = keys.filter(k => k.split('.')[0] === category); }
   const results = keys.map(itemNo=>{
     const plRows = state.itemsIndex[itemNo] || [];
     const snRows = state.serialIndex[itemNo] || [];
